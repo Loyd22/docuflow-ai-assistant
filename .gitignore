@@ -1,32 +1,35 @@
-# Environment variables
+# Environment variables and secrets
 .env
-backend/.env
-frontend/.env
+.env.local
+.env.production
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+.venv/
 venv/
-backend/venv/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Node
+# Node.js
 node_modules/
-frontend/node_modules/
 dist/
-frontend/dist/
+.vite/
 
-# Uploads
-uploads/
-backend/uploads/
+# Uploaded documents
+backend/uploads/*
+!backend/uploads/.gitkeep
 
-# OS files
+# IDE and operating system files
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
 
-# Docker and logs
+# Logs
 *.log
 
-# IDE
-.vscode/
-.idea/
+# Docker and database local files
+postgres-data/

@@ -1,17 +1,23 @@
+"""
+SQLAlchemy database engine configuration.
+
+The engine manages connections between the FastAPI backend
+and the PostgreSQL database.
+"""
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
 
-# This creates the connection engine to PostgreSQL.
-engine = create_engine(settings.DATABASE_URL)
+engine = create_engine(
+    settings.database_url,
 
+    # Checks whether a pooled connection is still valid
+    # before SQLAlchemy uses it.
+    pool_pre_ping=True,
 
-# This creates database sessions.
-# A session is used when we read or write data in the database.
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
+    # Display generated SQL during development.
+    # We can disable this in production.
+    echo=settings.app_debug,
 )

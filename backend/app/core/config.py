@@ -1,35 +1,49 @@
-from pydantic_settings import BaseSettings
+"""
+Central application configuration.
+
+This file reads environment variables and makes them available
+to the rest of the backend through one settings object.
+"""
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # This is the application name shown in FastAPI docs.
-    APP_NAME: str = "DocuFlow AI"
+    """Defines all configuration values required by DocuFlow."""
 
-    # This tells us if we are running in development, testing, or production.
-    APP_ENV: str = "development"
+    app_name: str = "DocuFlow AI"
+    app_env: str = "development"
+    app_debug: bool = True
 
-    # This is the database connection string.
-    DATABASE_URL: str
+    postgres_host: str = "localhost"
+    postgres_port: int = 5434
+    postgres_db: str = "docuflow_db"
+    postgres_user: str = "docuflow_user"
+    postgres_password: str = "docuflow_password"
 
-    # This is used later for JWT authentication.
-    JWT_SECRET_KEY: str
+    database_url: str
 
-    # This is the algorithm used for JWT tokens.
-    JWT_ALGORITHM: str = "HS256"
-
-    # This controls how long login tokens stay valid.
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-
-    # This is the folder where uploaded documents will be stored.
-    UPLOAD_DIR: str = "uploads"
-
-    # This tells the app which AI provider to use later.
-    LLM_PROVIDER: str = "openai"
-
-    class Config:
-        # This tells Pydantic to read values from the .env file.
-        env_file = ".env"
+    # Tell Pydantic to read values from backend/.env.
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
-# This creates one settings object that we can import anywhere.
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    """
+    Create and cache one Settings object.
+
+    Caching prevents the application from repeatedly reading
+    the same environment file.
+    """
+
+    return Settings()
+
+
+settings = get_settings()

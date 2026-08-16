@@ -1,38 +1,38 @@
+"""
+DocuFlow FastAPI application entry point.
+"""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.router import api_router
 from app.core.config import settings
-from app.api.routes import health_routes
 
 
-# This creates the FastAPI application.
-app = FastAPI(
-    title=settings.APP_NAME,
-    version="1.0.0"
-)
+def create_application() -> FastAPI:
+    """Build and configure the FastAPI application."""
+
+    application = FastAPI(
+        title=settings.app_name,
+        version="0.1.0",
+        debug=settings.app_debug,
+    )
+
+    # Allow the local React development server to call FastAPI.
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    application.include_router(api_router)
+
+    return application
 
 
-# This allows the frontend to communicate with the backend.
-# During development, React usually runs on localhost:5173.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# This registers the health route.
-app.include_router(health_routes.router)
-
-
-@app.get("/")
-def root():
-    # This is the root endpoint.
-    return {
-        "message": "Welcome to DocuFlow AI API"
-    }
+app = create_application()

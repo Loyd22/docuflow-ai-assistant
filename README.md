@@ -1,44 +1,20 @@
 # DocuFlow AI
 
-DocuFlow AI is an AI-powered document processing and workflow automation assistant.
+DocuFlow AI is an AI-powered document-processing and workflow automation system.
 
-## What it does
+## Initial Technology Stack
 
-Employees can upload business documents such as invoices, SOPs, contracts, HR forms, purchase requests, policy documents, business reports, support tickets, digital forms, and company memos.
-
-The system will classify documents, extract important data, answer questions using RAG, check business rules, and route documents to approval workflows.
-
-## Tech Stack
-
-### Frontend
 - React
-- TypeScript
 - Vite
-- Axios
-- React Router
-
-### Backend
-- Python
+- TypeScript
 - FastAPI
-- Pydantic
-- SQLAlchemy
-
-### Database
 - PostgreSQL
+- SQLAlchemy
+- Docker Compose
 
-### Future AI Features
-- OpenAI API
-- Azure OpenAI-ready configuration
-- LangChain
-- LangGraph
-- ChromaDB
-- RAG
+## Local Development
 
-## Phase 1 Status
+### Start PostgreSQL
 
-- Backend FastAPI setup
-- Frontend React TypeScript setup
-- PostgreSQL Docker setup
-- Environment variables setup
-- Health check endpoint
-- Database connection test
+```bash
+docker compose up -d
