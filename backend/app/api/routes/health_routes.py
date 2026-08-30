@@ -5,13 +5,14 @@ Health checks help developers, Docker, and hosting platforms
 determine whether the application and database are working.
 """
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
-
 
 router = APIRouter(
     prefix="/health",
@@ -31,7 +32,10 @@ def check_application_health() -> dict[str, str]:
 
 @router.get("/database")
 def check_database_health(
-    database_session: Session = Depends(get_db_session),
+    database_session: Annotated[
+        Session,
+        Depends(get_db_session),
+    ],
 ) -> dict[str, str]:
     """Confirm that the backend can communicate with PostgreSQL."""
 

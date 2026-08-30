@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     postgres_db: str = "docuflow_db"
     postgres_user: str = "docuflow_user"
     postgres_password: str = "docuflow_password"
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    test_database_url: str
 
     database_url: str
 
