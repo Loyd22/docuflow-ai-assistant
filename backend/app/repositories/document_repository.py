@@ -41,3 +41,25 @@ def create_document(
     database_session.refresh(document)
 
     return document
+
+
+def save_document(
+    database_session: Session,
+    document: Document,
+) -> Document:
+    """Persist changes made to an existing document."""
+
+    database_session.add(document)
+    database_session.commit()
+    database_session.refresh(document)
+
+    return document
+
+
+def get_document_by_id(
+    database_session: Session,
+    document_id: int,
+) -> Document | None:
+    """Return a document by ID, or None when it does not exist."""
+
+    return database_session.get(Document, document_id)

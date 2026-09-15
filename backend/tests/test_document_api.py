@@ -234,3 +234,147 @@ def test_upload_document_creates_database_record(
     assert document.original_file_name == "company-policy.txt"
     assert document.mime_type == "text/plain"
     assert document.file_size == len(b"Employees must follow company policy.")
+
+
+def test_process_document_success(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An authenticated user can process their uploaded document."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    access_token = register_and_login(
+        client,
+        email="processor@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+        files={
+            "uploaded_file": (
+                "company-policy.txt",
+                b"Employees must follow company policy.",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    process_response = client.post(
+        f"/documents/{document_id}/process",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert process_response.status_code == 200
+
+    response_data = process_response.json()
+
+    assert response_data["id"] == document_id
+    assert response_data["status"] == "text_extracted"
+
+    document = db_session.query(Document).filter(Document.id == document_id).one()
+
+    db_session.refresh(document)
+
+    assert document.status.value == "text_extracted"
+    assert document.extracted_text == "Employees must follow company policy."
+
+
+def test_process_document_requires_authentication(
+    client: TestClient,
+) -> None:
+    """Anonymous users cannot process documents."""
+
+    response = client.post(
+        "/documents/1/process",
+    )
+
+    assert response.status_code in (401, 403)
+
+
+def test_process_document_returns_not_found(
+    client: TestClient,
+) -> None:
+    """Processing an unknown document should return 404."""
+
+    access_token = register_and_login(
+        client,
+        email="not-found@example.com",
+    )
+
+    response = client.post(
+        "/documents/999999/process",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found."
+
+
+def test_process_document_rejects_different_user(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A user cannot process a document uploaded by another user."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    owner_token = register_and_login(
+        client,
+        email="document-owner@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {owner_token}",
+        },
+        files={
+            "uploaded_file": (
+                "private-document.txt",
+                b"Private document content.",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    other_user_token = register_and_login(
+        client,
+        email="different-user@example.com",
+    )
+
+    response = client.post(
+        f"/documents/{document_id}/process",
+        headers={
+            "Authorization": f"Bearer {other_user_token}",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "You are not allowed to process this document."
+    )
