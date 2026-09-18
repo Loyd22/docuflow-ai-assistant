@@ -16,6 +16,11 @@ from app.db.enums import DocumentStatus, DocumentType
 
 if TYPE_CHECKING:
     from app.db.models.user import User
+from typing import Any
+
+from sqlalchemy import Float
+from sqlalchemy.dialects.postgresql import JSONB
+
 from app.db.models.workflow import Workflow
 
 
@@ -111,4 +116,14 @@ class Document(Base):
 
     workflow: Mapped["Workflow | None"] = relationship(
         back_populates="document",
+    )
+
+    classification_confidence: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    extracted_data: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
     )

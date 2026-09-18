@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     test_database_url: str
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-5.6-luna"
 
     database_url: str
 

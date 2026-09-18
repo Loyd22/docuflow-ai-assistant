@@ -1,9 +1,8 @@
-````markdown
 # DocuFlow AI
 
 DocuFlow AI is an AI-powered document-processing and workflow automation system designed to automate business document intake, classification, extraction, routing, approval, and retrieval.
 
-The project is being built incrementally using a modular monolith architecture with clear separation between API routes, schemas, services, repositories, database models, security, file storage, AI logic, and tests.
+The project is being built incrementally using a modular monolith architecture with clear separation between API routes, schemas, services, repositories, database models, security, file storage, document processing, AI logic, and tests.
 
 ---
 
@@ -16,10 +15,12 @@ Completed:
 * Phase 3 — Database Design
 * Phase 4 — Authentication & Authorization
 * Phase 5 — Document Upload
+* Phase 6 — Document Processing
+* Phase 7 — AI Classification & Extraction
 
 Next:
 
-* Phase 6 — Document Processing
+* Phase 8 — Business Rules
 
 ---
 
@@ -51,12 +52,34 @@ Next:
 * Argon2 password hashing through `pwdlib`
 * Role-based authorization
 
-### File Upload & Storage
+### File Handling
 
 * FastAPI `UploadFile`
-* `multipart/form-data`
+* Multipart form-data uploads
 * Local filesystem storage
-* UUID-based stored filenames
+* UUID-based internal filenames
+
+### Document Processing
+
+* `python-docx` for DOCX text extraction
+* `pypdf` for PDF text extraction
+* Python `pathlib` and built-in text reading for TXT files
+* Extractor factory for file-type selection
+* Processing-status tracking
+* Controlled processing exceptions
+
+### AI Classification & Extraction
+
+* OpenAI Python SDK
+* OpenAI Responses API
+* Configurable AI model through environment settings
+* Structured outputs validated with Pydantic
+* Document classification across supported DocuFlow document types
+* Invoice-specific structured field extraction
+* AI-specific application exceptions and controlled API responses
+* Persistent AI-processing status tracking
+* PostgreSQL JSONB storage for structured extracted data
+* Separate AI evaluation suite for model-quality measurement
 
 ### Infrastructure & Development
 
@@ -75,6 +98,14 @@ DocuFlow currently follows a modular monolith structure.
 ```text
 backend/
 ├── app/
+│   ├── ai/
+│   │   ├── __init__.py
+│   │   ├── client.py
+│   │   ├── classifier.py
+│   │   ├── extractor.py
+│   │   ├── prompts.py
+│   │   └── exceptions.py
+│   │
 │   ├── api/
 │   │   ├── routes/
 │   │   │   ├── auth_routes.py
@@ -99,23 +130,43 @@ backend/
 │   │   ├── enums.py
 │   │   └── session.py
 │   │
+│   ├── processing/
+│   │   ├── __init__.py
+│   │   ├── base_extractor.py
+│   │   ├── text_extractor.py
+│   │   ├── docx_extractor.py
+│   │   ├── pdf_extractor.py
+│   │   ├── extractor_factory.py
+│   │   └── exceptions.py
+│   │
 │   ├── repositories/
 │   │   ├── user_repository.py
 │   │   └── document_repository.py
 │   │
 │   ├── schemas/
+│   │   ├── ai_schema.py
 │   │   ├── auth_schema.py
 │   │   └── document_schema.py
 │   │
 │   ├── services/
 │   │   ├── auth_service.py
-│   │   └── document_service.py
+│   │   ├── document_service.py
+│   │   ├── document_processing_service.py
+│   │   ├── document_ai_service.py
+│   │   └── document_analysis_service.py
 │   │
 │   ├── storage/
 │   │   ├── __init__.py
 │   │   └── file_storage.py
 │   │
 │   └── main.py
+│
+├── evals/
+│   ├── __init__.py
+│   ├── classification_cases.py
+│   ├── invoice_extraction_cases.py
+│   ├── run_classification_eval.py
+│   └── run_invoice_extraction_eval.py
 │
 ├── migrations/
 │
@@ -124,15 +175,25 @@ backend/
 │   ├── test_auth_api.py
 │   ├── test_auth_service.py
 │   ├── test_document_api.py
+│   ├── test_document_processing_service.py
 │   ├── test_document_service.py
-│   └── test_health.py
+│   ├── test_document_classifier.py
+│   ├── test_invoice_extractor.py
+│   ├── test_document_ai_service.py
+│   ├── test_document_analysis_service.py
+│   ├── test_docx_extractor.py
+│   ├── test_extractor_factory.py
+│   ├── test_health.py
+│   ├── test_pdf_extractor.py
+│   └── test_text_extractor.py
 │
 ├── uploads/
 ├── alembic.ini
+├── pyproject.toml
 ├── requirements.txt
 ├── .env
 └── .env.example
-````
+```
 
 The application follows this general request flow:
 
@@ -152,21 +213,50 @@ SQLAlchemy
 PostgreSQL
 ```
 
-Document uploads also use a dedicated file-storage layer:
+Document uploads use a dedicated storage layer:
 
 ```text
-HTTP Upload
-↓
-Document Route
-↓
 Document Service
-├── File Storage
-│   ↓
-│   backend/uploads/
-│
-└── Document Repository
-    ↓
-    PostgreSQL
+↓
+File Storage Layer
+↓
+Local Upload Directory
+```
+
+Document processing uses a dedicated processing layer:
+
+```text
+Document Processing Service
+↓
+Extractor Factory
+↓
+TXT / DOCX / PDF Extractor
+↓
+Extracted Text
+↓
+Document Repository
+↓
+PostgreSQL
+```
+
+AI analysis uses dedicated AI and orchestration layers:
+
+```text
+Extracted Text
+↓
+Document Analysis Service
+↓
+Document AI Service
+↓
+Document Classifier
+↓
+Invoice Extractor when document_type = invoice
+↓
+Validated Pydantic Structured Output
+↓
+Document Repository
+↓
+PostgreSQL
 ```
 
 Security-specific functionality is kept inside the core security layer.
@@ -187,7 +277,27 @@ Database schema changes are managed through Alembic migrations.
 
 Do not use `Base.metadata.create_all()` as the normal development or production migration strategy.
 
-The automated test environment may use `Base.metadata.create_all()` and `Base.metadata.drop_all()` to create and destroy an isolated disposable test schema.
+The automated integration-test environment may use `create_all()` and `drop_all()` to create and remove an isolated disposable test schema.
+
+The `documents` table stores metadata and processing results including:
+
+```text
+id
+uploaded_by
+original_file_name
+stored_file_name
+file_path
+mime_type
+file_size
+document_type
+status
+extracted_text
+classification_confidence
+extracted_data
+summary
+created_at
+updated_at
+```
 
 ---
 
@@ -275,7 +385,7 @@ Authorization: Bearer <access_token>
 GET /auth/me
 ```
 
-validates the JWT, resolves the current user from PostgreSQL, verifies that the account is active, and returns safe user information.
+The endpoint validates the JWT, resolves the current user from PostgreSQL, verifies that the account is active, and returns safe user information.
 
 ### Roles
 
@@ -305,7 +415,7 @@ Inactive accounts are rejected without deleting historical business records.
 
 ## Document Upload
 
-Phase 5 introduced authenticated document upload with file validation, local file storage, database metadata persistence, cleanup handling, and automated tests.
+Phase 5 introduced authenticated document uploads with validation, local file storage, metadata persistence, cleanup handling, and automated tests.
 
 ### Document Upload Endpoint
 
@@ -313,7 +423,7 @@ Phase 5 introduced authenticated document upload with file validation, local fil
 POST /documents
 ```
 
-The endpoint requires authentication using:
+The endpoint requires authentication:
 
 ```text
 Authorization: Bearer <access_token>
@@ -330,8 +440,6 @@ The current upload implementation accepts:
 .docx
 .txt
 ```
-
-Additional file types can be introduced later when document-processing requirements expand.
 
 ### Maximum File Size
 
@@ -362,9 +470,9 @@ Save physical file
 ↓
 Validate actual file size
 ↓
-Create document metadata record
+Create document database record
 ↓
-Return safe document response
+Return safe document metadata
 ```
 
 ### File Storage
@@ -375,7 +483,7 @@ Uploaded files are currently stored locally in:
 backend/uploads/
 ```
 
-The file-storage layer generates a unique internal filename using a UUID instead of storing files directly under the user's original filename.
+The storage layer generates a unique internal filename using a UUID rather than directly storing the file using its user-provided name.
 
 Example:
 
@@ -387,100 +495,38 @@ Stored filename:
 7bb65f93b6b44266b3dba9fc31fd6c87.pdf
 ```
 
-The original filename is preserved in PostgreSQL.
+The original filename is still preserved in PostgreSQL.
 
-This helps prevent filename collisions when multiple users upload files with the same name.
+### New Document State
 
-For example:
-
-```text
-User A uploads:
-invoice.pdf
-
-User B uploads:
-invoice.pdf
-```
-
-DocuFlow can safely store them as:
-
-```text
-a1f5d6...pdf
-b8c9e2...pdf
-```
-
-while keeping each original filename in the database.
-
-### Document Metadata
-
-The `documents` table stores metadata and processing information including:
-
-```text
-id
-uploaded_by
-original_file_name
-stored_file_name
-file_path
-mime_type
-file_size
-document_type
-status
-extracted_text
-summary
-created_at
-updated_at
-```
-
-Newly uploaded documents currently default to:
+New uploads default to:
 
 ```text
 document_type = unknown
 status = uploaded
 ```
 
-The following fields are present for later processing phases:
-
-```text
-extracted_text
-summary
-```
-
-They are not populated during Phase 5.
-
 ### Uploader Identity
 
-The client does not provide the `uploaded_by` value directly.
+Clients do not provide `uploaded_by` themselves.
 
-Instead, the backend determines the uploader from the authenticated user.
+Instead:
 
 ```text
-Authorization Header
-↓
 JWT
 ↓
 get_current_user
-↓
-User
 ↓
 current_user.id
 ↓
 Document.uploaded_by
 ```
 
-This prevents a client from claiming that another account uploaded the document.
-
-For example, the client cannot safely override ownership using data such as:
-
-```json
-{
-  "uploaded_by": 999
-}
-```
-
-The backend remains the authority for the uploader identity.
+This prevents users from claiming another account as the uploader.
 
 ### Public Document Response
 
-The upload endpoint returns safe business-facing document information such as:
+The document API returns safe business-facing metadata such as:
 
 ```text
 id
@@ -494,38 +540,18 @@ created_at
 updated_at
 ```
 
-Internal file-storage details are intentionally not exposed:
+Internal fields such as:
 
 ```text
 stored_file_name
 file_path
 ```
 
-This prevents the API from leaking backend filesystem implementation details.
+are not exposed through the public response.
 
 ### Upload Failure Cleanup
 
-File storage and database persistence are separate operations.
-
-A possible failure scenario is:
-
-```text
-Save physical file
-↓
-Try to create database record
-↓
-Database operation fails
-```
-
-Without cleanup, this could leave a file in:
-
-```text
-backend/uploads/
-```
-
-without a corresponding document record.
-
-The document service therefore performs cleanup:
+If the physical file is saved but database persistence fails:
 
 ```text
 Save file
@@ -536,57 +562,615 @@ Database failure
 ↓
 Delete saved file
 ↓
-Rollback SQLAlchemy transaction
+Rollback transaction
 ↓
-Raise error
+Propagate error
 ```
 
 This helps prevent orphaned files.
 
-### File Validation
+### Upload Validation
 
-The current Phase 5 upload layer validates:
+Phase 5 validates:
 
 * filename presence
 * supported file extension
 * empty files
 * maximum file size
 
-Unsupported extensions are rejected.
+Deep file-signature validation is not yet implemented.
+
+---
+
+## Document Processing
+
+Phase 6 introduced document text extraction for uploaded TXT, DOCX, and PDF files.
+
+The goal is to transform stored files into machine-readable text for later AI analysis.
+
+### Processing Endpoint
+
+```text
+POST /documents/{document_id}/process
+```
+
+The endpoint requires authentication.
+
+Only the user who uploaded the document can currently trigger processing.
+
+### Processing Flow
+
+```text
+Authenticated User
+↓
+POST /documents/{document_id}/process
+↓
+Find document in PostgreSQL
+↓
+Verify document ownership
+↓
+Set status = processing
+↓
+Document Processing Service
+↓
+Extractor Factory
+↓
+Choose TXT / DOCX / PDF extractor
+↓
+Extract text
+↓
+Store extracted_text
+↓
+Set status = text_extracted
+↓
+Persist document
+↓
+Return safe document metadata
+```
+
+### Extractor Architecture
+
+All extractors follow:
+
+```text
+extract(file_path) -> str
+```
+
+Current hierarchy:
+
+```text
+BaseTextExtractor
+├── TextExtractor
+├── DOCXExtractor
+└── PDFExtractor
+```
+
+The `ExtractorFactory` selects the extractor by file extension:
+
+```text
+.txt  → TextExtractor
+.docx → DOCXExtractor
+.pdf  → PDFExtractor
+```
+
+### TXT Extraction
+
+TXT files are read using UTF-8 text reading.
+
+### DOCX Extraction
+
+DOCX files are processed using `python-docx`.
+
+The extractor:
+
+* opens the document
+* reads paragraph text
+* ignores empty paragraphs
+* combines readable paragraphs
+
+### PDF Extraction
+
+PDF files are processed using `pypdf`.
+
+The extractor:
+
+* opens the PDF
+* iterates through pages
+* extracts machine-readable text
+* ignores pages without usable text
+* combines readable text
+
+The current implementation supports text-based PDFs.
+
+Scanned or image-only PDFs may require OCR in a future enhancement.
+
+### Processing Status Lifecycle
+
+Successful processing:
+
+```text
+uploaded
+↓
+processing
+↓
+text_extracted
+```
+
+Failed processing:
+
+```text
+uploaded
+↓
+processing
+↓
+processing_failed
+```
+
+### Empty Extraction Handling
+
+If extraction returns only empty or whitespace content:
+
+```text
+Extraction result
+↓
+No usable text
+↓
+processing_failed
+```
+
+The service raises a controlled `DocumentProcessingError`.
+
+### Processing Failure Handling
+
+Examples include:
+
+```text
+missing file
+corrupted document
+unreadable document
+unsupported extraction condition
+empty extracted text
+```
+
+The service:
+
+```text
+detects error
+↓
+sets status = processing_failed
+↓
+persists failed state
+↓
+raises DocumentProcessingError
+```
+
+### Processing API Errors
+
+```text
+Document does not exist
+→ 404 Not Found
+
+Authenticated user does not own document
+→ 403 Forbidden
+
+Document cannot be processed
+→ 400 Bad Request
+```
+
+---
+
+## AI Classification & Extraction
+
+Phase 7 introduced DocuFlow's first real LLM-powered document-analysis pipeline.
+
+The AI layer takes machine-readable text produced by Phase 6, classifies the document, extracts supported structured business fields, validates the AI output, and persists the result.
+
+### Analysis Endpoint
+
+```text
+POST /documents/{document_id}/analyze
+```
+
+The endpoint requires authentication.
+
+Only the user who uploaded the document can currently trigger AI analysis.
+
+The document must already have:
+
+```text
+status = text_extracted
+```
+
+before AI analysis begins.
+
+### AI Analysis Flow
+
+```text
+Authenticated User
+↓
+POST /documents/{document_id}/analyze
+↓
+Find document in PostgreSQL
+↓
+Verify document ownership
+↓
+Verify status = text_extracted
+↓
+Set status = ai_processing
+↓
+Document Analysis Service
+↓
+Document AI Service
+↓
+Document Classifier
+↓
+Structured Extractor when supported
+↓
+Validate structured output with Pydantic
+↓
+Persist document_type
+↓
+Persist classification_confidence
+↓
+Persist extracted_data
+↓
+Set status = analyzed
+↓
+Return safe document metadata
+```
+
+If classification or extraction fails:
+
+```text
+text_extracted
+↓
+ai_processing
+↓
+AI failure
+↓
+ai_processing_failed
+```
+
+### AI Layer Architecture
+
+```text
+app/ai/
+├── client.py
+├── classifier.py
+├── extractor.py
+├── prompts.py
+└── exceptions.py
+```
+
+Responsibilities:
+
+```text
+client.py
+→ creates/configures the OpenAI SDK client
+
+classifier.py
+→ determines document type
+
+extractor.py
+→ extracts supported structured fields
+
+prompts.py
+→ stores LLM instructions separately from orchestration logic
+
+exceptions.py
+→ exposes controlled DocuFlow AI-domain errors
+
+ai_schema.py
+→ validates structured AI outputs using Pydantic
+
+document_ai_service.py
+→ orchestrates classification and structured extraction
+
+document_analysis_service.py
+→ coordinates document lifecycle, persistence, and AI analysis
+
+document_repository.py
+→ persists AI results and document statuses
+```
+
+Provider-specific logic is kept outside API routes and database repositories.
+
+### Supported Classification Types
+
+The classifier currently recognizes:
+
+```text
+invoice
+contract
+sop
+hr_form
+purchase_request
+policy
+business_report
+support_ticket
+digital_form
+memo
+unknown
+```
+
+`unknown` is intentionally supported so the model is not forced to assign an incorrect business type.
+
+### Structured Invoice Extraction
+
+Invoice extraction is the first implemented document-specific extraction workflow.
+
+The validated invoice schema contains:
+
+```text
+invoice_number
+supplier
+invoice_date
+due_date
+currency
+subtotal
+tax
+total_amount
+```
+
+Missing values are allowed to remain `null`.
+
+The extraction prompt explicitly instructs the model not to invent missing business data.
 
 Example:
 
-```text
-.exe
+```json
+{
+  "invoice_number": "INV-2026-001",
+  "supplier": "ABC Office Supplies",
+  "invoice_date": "2026-09-18",
+  "due_date": "2026-09-30",
+  "currency": "PHP",
+  "subtotal": 22000.0,
+  "tax": 2640.0,
+  "total_amount": 24640.0
+}
 ```
 
-results in a `400 Bad Request`.
+Monetary values currently use floating-point numbers in the AI-facing structured schema because this produces a Structured Outputs-compatible JSON schema.
 
-The current implementation does not yet perform deep file-content or file-signature validation.
+Precise financial arithmetic in later business-rule phases can convert values to decimal representations before calculations.
 
-For example, a malicious user could theoretically rename a file:
+### Structured Outputs and Validation
 
-```text
-malware.exe
-```
+DocuFlow does not trust free-form LLM responses directly.
 
-to:
+AI responses are validated against Pydantic schemas before the application uses or persists them.
 
-```text
-report.pdf
-```
-
-More advanced file validation may later include:
+Classification uses:
 
 ```text
-filename extension
-+
-declared MIME type
-+
-actual file signature
+DocumentClassification
+
+document_type
+confidence
 ```
 
-That type of ingestion hardening can be added during later processing/security work.
+Invoice extraction uses:
+
+```text
+InvoiceExtraction
+
+invoice_number
+supplier
+invoice_date
+due_date
+currency
+subtotal
+tax
+total_amount
+```
+
+The combined result is represented by:
+
+```text
+DocumentAnalysisResult
+
+classification
+extracted_data
+```
+
+This provides a predictable contract between the AI layer and application services.
+
+### AI Persistence
+
+The `documents` table now stores:
+
+```text
+document_type
+classification_confidence
+extracted_data
+```
+
+`extracted_data` uses PostgreSQL `JSONB` so different document types can eventually store different structured field sets without creating many document-specific columns.
+
+Example:
+
+```json
+{
+  "invoice_number": "INV-2026-001",
+  "supplier": "ABC Office Supplies",
+  "invoice_date": "2026-09-18",
+  "due_date": "2026-09-30",
+  "currency": "PHP",
+  "subtotal": 22000.0,
+  "tax": 2640.0,
+  "total_amount": 24640.0
+}
+```
+
+Database changes are managed through Alembic migrations, including:
+
+```text
+classification_confidence column
+extracted_data JSONB column
+ai_processing enum value
+analyzed enum value
+ai_processing_failed enum value
+```
+
+### AI Processing Status Lifecycle
+
+Successful AI analysis:
+
+```text
+text_extracted
+↓
+ai_processing
+↓
+analyzed
+```
+
+Failed AI analysis:
+
+```text
+text_extracted
+↓
+ai_processing
+↓
+ai_processing_failed
+```
+
+This distinguishes text-extraction failures from AI-analysis failures.
+
+### AI API Error Handling
+
+The analysis endpoint maps expected conditions to controlled responses:
+
+```text
+Document does not exist
+→ 404 Not Found
+
+Authenticated user does not own document
+→ 403 Forbidden
+
+Document is not ready for AI analysis
+→ 400 Bad Request
+
+AI provider is not configured
+→ 503 Service Unavailable
+
+Classification or extraction fails
+→ 502 Bad Gateway
+
+Successful analysis
+→ 200 OK
+```
+
+Raw provider exceptions are not returned to API clients.
+
+Internal AI-layer logging preserves provider errors for debugging.
+
+### Real End-to-End AI Verification
+
+Phase 7 was verified using a real invoice flow:
+
+```text
+Upload TXT invoice
+↓
+Extract text
+↓
+Real OpenAI classification request
+↓
+Classify as invoice
+↓
+Real structured invoice extraction request
+↓
+Persist AI results
+↓
+status = analyzed
+```
+
+This confirmed that the API, AI provider, Pydantic structured outputs, PostgreSQL persistence, and document-status lifecycle work together.
+
+---
+
+## AI Evaluations
+
+AI evaluations are kept separately from normal `pytest` software tests.
+
+```text
+tests/
+→ verifies software behavior using deterministic tests and mocks
+
+evals/
+→ measures real model quality using fixed ground-truth examples
+```
+
+Current evaluation commands:
+
+```bash
+python -m evals.run_classification_eval
+python -m evals.run_invoice_extraction_eval
+```
+
+### Classification Evaluation
+
+Current result:
+
+```text
+6 / 7 correct
+85.71% accuracy
+```
+
+The current known miss is an `unknown` example classified as:
+
+```text
+memo
+```
+
+This result only measures performance on the current seven-case evaluation dataset.
+
+It should not be interpreted as real-world classification accuracy.
+
+### Invoice Extraction Evaluation
+
+Current result:
+
+```text
+24 / 24 fields correct
+100.00% field accuracy
+```
+
+This was measured across three invoice examples containing:
+
+```text
+complete fields
+missing fields
+invoice without tax
+```
+
+The extractor correctly preserved missing values as `None` rather than inventing values.
+
+### Purpose of Evaluations
+
+Evaluations provide a measurable baseline for future changes to:
+
+```text
+prompts
+models
+schemas
+classification definitions
+extraction strategies
+```
+
+For example:
+
+```text
+Change prompts.py
+↓
+Run relevant eval
+↓
+Compare with previous baseline
+↓
+Keep or revert change
+```
+
+This helps detect AI regressions instead of relying only on subjective manual testing.
 
 ---
 
@@ -617,7 +1201,7 @@ PostgreSQL is exposed locally through:
 localhost:5434
 ```
 
-The Docker container continues to use PostgreSQL's internal port:
+The Docker container uses PostgreSQL's internal port:
 
 ```text
 5432
@@ -633,7 +1217,7 @@ docker ps
 
 ## Backend Setup
 
-Navigate to the backend:
+Navigate to:
 
 ```bash
 cd backend
@@ -673,33 +1257,28 @@ Relevant configuration includes:
 
 ```env
 APP_NAME=DocuFlow AI
-
 APP_ENV=development
-
 APP_DEBUG=true
 
 POSTGRES_HOST=localhost
-
 POSTGRES_PORT=5434
-
 POSTGRES_DB=docuflow
-
 POSTGRES_USER=your_postgres_user
-
 POSTGRES_PASSWORD=your_postgres_password
 
 JWT_SECRET_KEY=your_secure_random_secret
-
 JWT_ALGORITHM=HS256
-
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-5.6-luna
 
 TEST_DATABASE_URL=postgresql+psycopg://user:password@localhost:5434/docuflow_test
 ```
 
 Never commit real secrets from `.env`.
 
-To generate a JWT secret:
+Generate a JWT secret with:
 
 ```bash
 python -c "import secrets; print(secrets.token_hex(32))"
@@ -729,15 +1308,9 @@ Check the active migration:
 alembic current
 ```
 
-Development and production database schema changes should be handled through Alembic.
+Development and production database schema changes should be applied through Alembic.
 
-Do not replace Alembic with:
-
-```python
-Base.metadata.create_all()
-```
-
-for normal application database management.
+Some PostgreSQL-native enum changes require manually authored Alembic migration commands because enum-value additions may not be generated automatically.
 
 ---
 
@@ -755,7 +1328,7 @@ run:
 uvicorn app.main:app --reload
 ```
 
-The API will be available at:
+The API is available at:
 
 ```text
 http://127.0.0.1:8000
@@ -783,7 +1356,7 @@ Database health:
 GET /health/database
 ```
 
-The database health endpoint verifies PostgreSQL connectivity using a simple lightweight SQL query.
+The database health endpoint verifies PostgreSQL connectivity using a lightweight SQL query.
 
 ---
 
@@ -797,8 +1370,6 @@ Run the complete test suite:
 pytest -v
 ```
 
-The test suite is divided between service-level unit tests and API/database integration tests.
-
 ### Health Tests
 
 Current health testing includes:
@@ -807,11 +1378,9 @@ Current health testing includes:
 
 ### Authentication Service Unit Tests
 
-Current authentication service testing includes:
+Current authentication-service testing includes:
 
 * successful registration
-* email normalization
-* password hashing
 * duplicate email rejection
 * successful login
 * incorrect password rejection
@@ -820,7 +1389,7 @@ Current authentication service testing includes:
 
 ### Authentication API Integration Tests
 
-Current authentication API integration testing includes:
+Current authentication API testing includes:
 
 * successful registration
 * duplicate registration
@@ -834,73 +1403,92 @@ Current authentication API integration testing includes:
 * manager authorization
 * admin authorization
 
-Phase 4 originally reached:
+### Document Upload Service Tests
 
-```text
-18 passed
-```
-
-before temporary authorization verification endpoints were reviewed and the test suite continued evolving.
-
-### Document Service Unit Tests
-
-Phase 5 introduced service-level tests for:
+Current testing includes:
 
 * successful document upload
-* unsupported file extension rejection
+* unsupported extension rejection
 * empty-file rejection
 * oversized-file rejection
-* saved-file cleanup when database persistence fails
+* file cleanup when database persistence fails
 
-These tests isolate the document service from external infrastructure where appropriate using mocks.
+### Document Processing Service Tests
 
-The service tests verify business behavior such as:
+Current testing includes:
 
-```text
-Document Service
-↓
-Validate input
-↓
-Coordinate file storage
-↓
-Coordinate repository call
-↓
-Handle failure cleanup
-```
+* successful text extraction
+* persistence of extracted text
+* transition to `text_extracted`
+* transition to `processing_failed` when extraction fails
+
+### TXT Extractor Tests
+
+* successful text extraction
+* missing-file rejection
+* directory-path rejection
+
+### DOCX Extractor Tests
+
+* successful paragraph extraction
+* empty-paragraph filtering
+* missing-file rejection
+* directory-path rejection
+
+### PDF Extractor Tests
+
+* missing-file rejection
+* directory-path rejection
+
+A dedicated successful PDF extraction fixture can be expanded later.
+
+### Extractor Factory Tests
+
+* TXT extractor selection
+* DOCX extractor selection
+* PDF extractor selection
+* case-insensitive extension handling
+* unsupported-extension rejection
 
 ### Document API Integration Tests
 
-Phase 5 also introduced API integration tests for:
+#### Upload
 
-* successful authenticated document upload
+* successful authenticated upload
 * authentication requirement
 * unsupported extension rejection
 * empty-file rejection
-* database metadata persistence
-* physical file persistence
-* safe response fields
+* document database-record creation
+* physical file-storage verification
+* safe API response verification
 
-These tests exercise the real application layers together:
+#### Processing
 
-```text
-HTTP Request
-↓
-FastAPI
-↓
-Authentication
-↓
-Document Route
-↓
-Document Service
-↓
-Document Repository
-↓
-SQLAlchemy
-↓
-PostgreSQL Test Database
-```
+* successful authenticated document processing
+* authentication requirement
+* unknown document rejection
+* cross-user processing rejection
+* extracted-text persistence
+* processing-status persistence
 
-The tests also exercise real filesystem operations using pytest temporary directories.
+### AI Unit and Workflow Tests
+
+Phase 7 testing includes:
+
+* document-classifier success behavior
+* empty classification input rejection
+* missing parsed classification handling
+* provider classification error conversion
+* invoice-extractor success behavior
+* empty invoice input rejection
+* missing parsed extraction handling
+* provider extraction error conversion
+* missing optional invoice fields
+* `DocumentAIService` orchestration
+* supported and unsupported extraction routing
+* persistent document-analysis workflow
+* AI-processing status transitions
+* AI failure-state handling
 
 ### Test Database
 
@@ -912,83 +1500,65 @@ docuflow_test
 
 This prevents automated tests from modifying the normal development database.
 
-The test database configuration is provided through:
+Temporary filesystem locations are also used during document tests to avoid polluting:
 
 ```text
-TEST_DATABASE_URL
-```
-
-The test suite overrides the application's normal database dependency so API requests execute against the test database.
-
-Test transactions are rolled back after tests where appropriate.
-
-### Temporary File Storage During Tests
-
-Document API tests do not write test files into the normal development upload folder.
-
-Instead, pytest's:
-
-```text
-tmp_path
-```
-
-fixture is used.
-
-The storage location is temporarily redirected during a test:
-
-```text
-normal application:
 backend/uploads/
-
-test:
-temporary pytest directory
 ```
-
-This prevents automated tests from leaving test documents in the real upload directory.
 
 ### Current Test Result
 
-After Phase 5 implementation:
+After Phase 7 implementation:
 
 ```text
-28 passed
+66 passed
 ```
 
-The current suite covers:
+The test suite currently covers:
 
-```text
-Health
-+
-Authentication
-+
-Authorization
-+
-Document Service
-+
-Document Upload API
-+
-PostgreSQL Integration
-+
-Filesystem Integration
-```
-
-Known non-failing warnings currently include:
-
-* a Starlette TestClient/httpx deprecation warning
-* a SQLAlchemy transaction cleanup warning in one document integration test path
-
-These warnings do not currently cause test failures but can be addressed during later test-maintenance work.
+* authentication
+* authorization
+* health checks
+* document upload services
+* document upload API behavior
+* filesystem integration
+* PostgreSQL persistence
+* TXT extraction
+* DOCX extraction
+* PDF extractor validation
+* extractor selection
+* document-processing services
+* document-processing API behavior
+* processing-status transitions
+* ownership authorization
+* AI classification behavior
+* invoice structured extraction behavior
+* AI orchestration
+* persistent AI-analysis workflow
+* AI failure-state handling
 
 ---
 
 ## Code Quality
 
-DocuFlow uses Ruff for Python linting and formatting.
+Ruff is used for Python linting and formatting.
+
+Project-level Ruff configuration is stored in:
+
+```text
+backend/pyproject.toml
+```
 
 Run lint checks:
 
 ```bash
 ruff check .
+```
+
+Check formatting:
+
+```bash
+ruff format --check .
 ```
 
 Automatically fix supported lint issues:
@@ -997,49 +1567,32 @@ Automatically fix supported lint issues:
 ruff check . --fix
 ```
 
-Format the Python codebase:
+Format Python files:
 
 ```bash
 ruff format .
 ```
 
-Check formatting without modifying files:
-
-```bash
-ruff format --check .
-```
-
-After lint or formatting changes, rerun:
+After code-quality changes:
 
 ```bash
 pytest -v
 ```
 
-to verify that code-quality changes did not introduce regressions.
+The FastAPI route layer includes a Ruff exception for rule `B008`, because FastAPI intentionally uses calls such as:
 
-The development workflow is:
-
-```text
-Implement feature
-↓
-Run feature-specific tests
-↓
-Run full pytest suite
-↓
-Run Ruff lint checks
-↓
-Run Ruff formatting check
-↓
-Review
-↓
-Commit
+```python
+Depends(...)
+File(...)
 ```
+
+inside function parameter defaults.
 
 ---
 
-## Planned Document Processing Pipeline
+## Document Processing Pipeline
 
-DocuFlow's workflow is:
+DocuFlow's planned workflow is:
 
 ```text
 Document Upload
@@ -1061,64 +1614,25 @@ RAG / Document Q&A
 Dashboard & Audit Logs
 ```
 
-Phase 5 completed:
+The first three major stages are now implemented:
 
 ```text
-Document Upload
+Document Upload                  ✅
+Text Extraction                  ✅
+AI Classification & Extraction  ✅
 ```
 
-The next major capability is:
+The next stage is:
 
 ```text
-Text Extraction
+Business Rule Validation
 ```
 
-which belongs to:
-
-```text
-Phase 6 — Document Processing
-```
-
-Phase 6 will take documents that are already safely uploaded and begin turning their file contents into text that later AI components can work with.
-
-The conceptual flow will become:
-
-```text
-Uploaded Document
-↓
-Locate stored file
-↓
-Determine document format
-↓
-Extract text
-↓
-Store extracted text
-↓
-Update document processing status
-```
-
-AI classification is intentionally not part of Phase 6.
-
-The processing pipeline remains separated:
-
-```text
-Phase 5
-Upload
-
-↓
-
-Phase 6
-Extract document content
-
-↓
-
-Phase 7
-AI classification and structured extraction
-```
+which will be introduced in Phase 8.
 
 ---
 
-## Planned Supported Document Types
+## Supported Document Types
 
 DocuFlow is designed to support:
 
@@ -1133,71 +1647,33 @@ DocuFlow is designed to support:
 * Digital Form
 * Memo / Announcement
 
-Examples:
-
-```text
-Invoice
-→ payment or billing document
-
-SOP
-→ step-by-step company process
-
-Contract
-→ agreement between company and client/vendor
-
-HR Form
-→ employee-related request or form
-
-Purchase Request
-→ request to purchase something
-
-Policy Document
-→ company rules or policies
-
-Business Report
-→ company update or performance report
-
-Support Ticket
-→ request for assistance
-
-Digital Form
-→ online business-process form
-
-Memo / Announcement
-→ official internal company communication
-```
-
-During Phase 5, uploaded documents begin as:
+Uploaded documents initially begin with:
 
 ```text
 document_type = unknown
 ```
 
-This is intentional.
+Phase 6 extracts machine-readable text.
 
-The upload system should not guess the document type.
+Phase 7 classifies that text using the AI layer.
 
-Later:
+Structured extraction is currently implemented for invoices.
 
-```text
-Phase 7 — AI Classification & Extraction
-```
-
-will classify supported documents and update the `document_type` value.
+Additional document-specific extraction schemas can be added incrementally as requirements grow.
 
 ---
 
 ## Development Phases
 
 ```text
-Phase 1  — Project Setup
-Phase 2  — Backend Foundation
-Phase 3  — Database Design
-Phase 4  — Authentication & Authorization
-Phase 5  — Document Upload
-Phase 6  — Document Processing
-Phase 7  — AI Classification & Extraction
-Phase 8  — Business Rules
+Phase 1  — Project Setup                         ✅ Completed
+Phase 2  — Backend Foundation                    ✅ Completed
+Phase 3  — Database Design                       ✅ Completed
+Phase 4  — Authentication & Authorization        ✅ Completed
+Phase 5  — Document Upload                       ✅ Completed
+Phase 6  — Document Processing                   ✅ Completed
+Phase 7  — AI Classification & Extraction        ✅ Completed
+Phase 8  — Business Rules                        ← Next
 Phase 9  — Workflow & Approval
 Phase 10 — RAG / Document Q&A
 Phase 11 — Dashboard & Audit Logs
@@ -1206,33 +1682,147 @@ Phase 13 — Testing
 Phase 14 — Deployment / DevOps
 ```
 
-Current status:
+The project is developed incrementally, with each phase implemented, tested, reviewed, documented, and committed before the next major phase begins.
+
+---
+
+## Phase 6 Completion Summary
+
+Phase 6 introduced DocuFlow's document-ingestion and text-extraction pipeline.
+
+Implemented:
 
 ```text
-Phase 1  — Completed
-Phase 2  — Completed
-Phase 3  — Completed
-Phase 4  — Completed
-Phase 5  — Completed
-
-Phase 6  — Next
+Base extractor interface
+TXT extraction
+DOCX extraction
+PDF extraction
+Extractor factory
+Document processing service
+Processing status transitions
+Processing failure handling
+Domain-specific processing errors
+Authenticated processing endpoint
+Document ownership authorization
+PostgreSQL extracted-text persistence
+Processing unit tests
+Processing API integration tests
+Ruff project configuration
 ```
 
-The project is developed incrementally, with each phase reviewed and tested before the next major feature is introduced.
-
-Before moving to the next development phase:
+Current Phase 6 flow:
 
 ```text
-1. Run the complete test suite
-2. Run code-quality checks
-3. Review the completed architecture
-4. Update this README
-5. Commit the completed phase
-6. Push the latest code to the remote Git repository
-7. Begin the next phase
+Uploaded Document
+↓
+POST /documents/{document_id}/process
+↓
+Authentication
+↓
+Document Lookup
+↓
+Ownership Authorization
+↓
+status = processing
+↓
+Extractor Factory
+↓
+TXT / DOCX / PDF Extractor
+↓
+Extracted Text
+↓
+Save extracted_text
+↓
+status = text_extracted
+↓
+Document Ready for AI Classification
 ```
 
+---
+
+## Phase 7 Completion Summary
+
+Phase 7 introduced DocuFlow's first production-style LLM integration for document classification and structured extraction.
+
+Implemented:
+
+```text
+OpenAI provider configuration
+Dedicated AI client layer
+Document classification prompt
+Structured invoice extraction prompt
+Pydantic structured-output schemas
+DocumentClassifier
+InvoiceExtractor
+AI-specific controlled exceptions
+DocumentAIService orchestration
+DocumentAnalysisService persistent workflow
+AI processing status lifecycle
+AI analysis endpoint
+Document ownership enforcement
+AI API error handling
+classification_confidence persistence
+JSONB extracted_data persistence
+Alembic migrations for AI fields and statuses
+Real OpenAI end-to-end verification
+Classification evaluation suite
+Invoice extraction evaluation suite
 ```
 
-This version keeps the original README detail and adds the full Phase 5 implementation rather than replacing it with a shorter summary. 
+Current Phase 7 flow:
+
+```text
+Document with extracted text
+↓
+POST /documents/{document_id}/analyze
+↓
+Authentication
+↓
+Document Lookup
+↓
+Ownership Authorization
+↓
+Validate status = text_extracted
+↓
+status = ai_processing
+↓
+Document Classifier
+↓
+Validated DocumentClassification
+↓
+If invoice:
+Invoice Extractor
+↓
+Validated InvoiceExtraction
+↓
+Persist document_type
+↓
+Persist classification_confidence
+↓
+Persist extracted_data
+↓
+status = analyzed
 ```
+
+Current quality baseline:
+
+```text
+Software tests:
+66 passed
+
+Classification eval:
+6 / 7 correct
+85.71% on current evaluation set
+
+Invoice extraction eval:
+24 / 24 fields correct
+100.00% on current evaluation set
+```
+
+DocuFlow is now ready to move into:
+
+```text
+Phase 8 — Business Rules
+```
+
+Phase 8 will consume validated Phase 7 structured data and apply deterministic company rules to decide what should happen next.

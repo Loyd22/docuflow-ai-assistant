@@ -24,6 +24,10 @@ class DocumentType(StrEnum):
     HR_FORM = "hr_form"
     PURCHASE_REQUEST = "purchase_request"
     POLICY = "policy"
+    BUSINESS_REPORT = "business_report"
+    SUPPORT_TICKET = "support_ticket"
+    DIGITAL_FORM = "digital_form"
+    MEMO = "memo"
     UNKNOWN = "unknown"
 
 
@@ -34,6 +38,10 @@ class DocumentStatus(StrEnum):
     PROCESSING = "processing"
     TEXT_EXTRACTED = "text_extracted"
     PROCESSING_FAILED = "processing_failed"
+
+    AI_PROCESSING = "ai_processing"
+    ANALYZED = "analyzed"
+    AI_PROCESSING_FAILED = "ai_processing_failed"
 
 
 class WorkflowStatus(StrEnum):

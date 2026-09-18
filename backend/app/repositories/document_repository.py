@@ -5,6 +5,8 @@ The repository layer is responsible only for database operations.
 It should not contain file-storage logic, HTTP logic, or business rules.
 """
 
+from typing import Any
+
 from sqlalchemy.orm import Session
 
 from app.db.enums import DocumentStatus, DocumentType
@@ -63,3 +65,39 @@ def get_document_by_id(
     """Return a document by ID, or None when it does not exist."""
 
     return database_session.get(Document, document_id)
+
+
+def update_document_status(
+    database_session: Session,
+    document: Document,
+    status: DocumentStatus,
+) -> Document:
+    """Update and persist a document's processing status."""
+
+    document.status = status
+
+    database_session.add(document)
+    database_session.commit()
+    database_session.refresh(document)
+
+    return document
+
+
+def update_ai_analysis(
+    database_session: Session,
+    document: Document,
+    document_type: DocumentType,
+    classification_confidence: float,
+    extracted_data: dict[str, Any] | None,
+) -> Document:
+    """Persist AI classification and structured extraction results."""
+
+    document.document_type = document_type
+    document.classification_confidence = classification_confidence
+    document.extracted_data = extracted_data
+
+    database_session.add(document)
+    database_session.commit()
+    database_session.refresh(document)
+
+    return document
