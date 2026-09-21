@@ -41,9 +41,7 @@ def run_invoice_extraction_eval() -> None:
     print("=" * 45)
 
     for case in INVOICE_EXTRACTION_CASES:
-        result = extractor.extract(
-            case.document_text
-        )
+        result = extractor.extract(case.document_text)
 
         expected_fields = {
             "invoice_number": case.invoice_number,
@@ -83,11 +81,7 @@ def run_invoice_extraction_eval() -> None:
                 f"actual={actual_value!r}"
             )
 
-    accuracy = (
-        correct_fields / total_fields
-        if total_fields
-        else 0.0
-    )
+    accuracy = correct_fields / total_fields if total_fields else 0.0
 
     print("\n" + "=" * 45)
     print(f"Correct fields: {correct_fields}/{total_fields}")

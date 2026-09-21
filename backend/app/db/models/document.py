@@ -127,3 +127,8 @@ class Document(Base):
         JSONB,
         nullable=True,
     )
+
+    business_rule_result: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )

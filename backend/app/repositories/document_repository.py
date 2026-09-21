@@ -101,3 +101,19 @@ def update_ai_analysis(
     database_session.refresh(document)
 
     return document
+
+
+def update_business_rule_result(
+    database_session: Session,
+    document: Document,
+    business_rule_result: dict[str, Any],
+) -> Document:
+    """Persist a document's evaluated business-rule decision."""
+
+    document.business_rule_result = business_rule_result
+
+    database_session.add(document)
+    database_session.commit()
+    database_session.refresh(document)
+
+    return document

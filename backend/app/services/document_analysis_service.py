@@ -1,8 +1,9 @@
 """
 Application workflow for persistent AI document analysis.
 
-This service coordinates document state, AI analysis, and persistence
-without exposing provider-specific AI logic to API routes.
+This service coordinates document state, AI analysis, business-rule
+evaluation, and persistence without exposing provider-specific AI
+logic or deterministic business rules to API routes.
 """
 
 from sqlalchemy.orm import Session
@@ -11,17 +12,20 @@ from app.ai.exceptions import (
     AIClassificationError,
     AIExtractionError,
 )
+from app.business_rules.engine import evaluate_business_rules
 from app.db.enums import DocumentStatus
 from app.db.models.document import Document
 from app.repositories.document_repository import (
     update_ai_analysis,
+    update_business_rule_result,
     update_document_status,
 )
+from app.schemas.business_rule_schema import BusinessRuleResult
 from app.services.document_ai_service import DocumentAIService
 
 
 class DocumentAnalysisService:
-    """Coordinate persistent AI analysis for a document."""
+    """Coordinate persistent AI analysis and business-rule evaluation."""
 
     def __init__(
         self,
@@ -34,8 +38,11 @@ class DocumentAnalysisService:
     def analyze(
         self,
         document: Document,
-    ) -> Document:
-        """Analyze a text-extracted document and persist the result."""
+    ) -> tuple[Document, BusinessRuleResult]:
+        """
+        Analyze a text-extracted document, evaluate business rules,
+        persist the results, and return the document and rule decision.
+        """
 
         # AI analysis should only happen after text extraction
         # has successfully completed.
@@ -55,9 +62,18 @@ class DocumentAnalysisService:
         )
 
         try:
-            # DocumentAIService handles classification
-            # and document-specific structured extraction.
+            # Phase 7:
+            # Classify the document and extract supported
+            # structured business data.
             result = self.ai_service.analyze_document(document.extracted_text)
+
+            # Phase 8:
+            # Apply deterministic business rules to the
+            # validated AI analysis result.
+            business_rule_result = evaluate_business_rules(
+                document_type=result.classification.document_type,
+                extracted_data=result.extracted_data,
+            )
 
             extracted_data = None
 
@@ -73,18 +89,34 @@ class DocumentAnalysisService:
                 database_session=self.database_session,
                 document=document,
                 document_type=result.classification.document_type,
-                classification_confidence=result.classification.confidence,
+                classification_confidence=(result.classification.confidence),
                 extracted_data=extracted_data,
             )
 
-            # AI analysis completed successfully.
+            # Convert the validated business-rule result into
+            # JSON-compatible Python data for PostgreSQL JSONB.
+            business_rule_data = business_rule_result.model_dump(mode="json")
+
+            # Persist the deterministic Phase 8 decision.
+            update_business_rule_result(
+                database_session=self.database_session,
+                document=document,
+                business_rule_result=business_rule_data,
+            )
+
+            # The document is considered fully analyzed only
+            # after both AI results and business-rule results
+            # have been successfully persisted.
             update_document_status(
                 database_session=self.database_session,
                 document=document,
                 status=DocumentStatus.ANALYZED,
             )
 
-            return document
+            # Return both:
+            # 1. persistent document state
+            # 2. deterministic Phase 8 business decision
+            return document, business_rule_result
 
         except (
             AIClassificationError,

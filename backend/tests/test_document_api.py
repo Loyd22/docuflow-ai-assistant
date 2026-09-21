@@ -1,10 +1,16 @@
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.db.enums import DocumentType
 from app.db.models.document import Document
+from app.schemas.ai_schema import (
+    DocumentClassification,
+    InvoiceExtraction,
+)
 
 
 def register_and_login(
@@ -377,4 +383,137 @@ def test_process_document_rejects_different_user(
     assert response.status_code == 403
     assert response.json()["detail"] == (
         "You are not allowed to process this document."
+    )
+
+
+def test_analyze_invoice_persists_business_rule_result(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    An analyzed invoice should persist its AI result and
+    deterministic business-rule decision.
+    """
+
+    # Keep uploaded test files out of the real uploads directory.
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    access_token = register_and_login(
+        client,
+        email="invoice-analysis@example.com",
+    )
+
+    # Step 1:
+    # Upload a real TXT invoice through the HTTP API.
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+        files={
+            "uploaded_file": (
+                "invoice.txt",
+                (
+                    b"Invoice Number: INV-001\n"
+                    b"Supplier: ABC Corporation\n"
+                    b"Currency: PHP\n"
+                    b"Total Amount: 25000.00\n"
+                ),
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    # Step 2:
+    # Run the real document-processing endpoint.
+    process_response = client.post(
+        f"/documents/{document_id}/process",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert process_response.status_code == 200
+    assert process_response.json()["status"] == "text_extracted"
+
+    # Step 3:
+    # Prevent creation of a real OpenAI client.
+    monkeypatch.setattr(
+        "app.api.routes.document_routes.create_openai_client",
+        lambda: Mock(),
+    )
+
+    # Mock only the AI classification boundary.
+    monkeypatch.setattr(
+        "app.ai.classifier.DocumentClassifier.classify",
+        lambda self, document_text: DocumentClassification(
+            document_type=DocumentType.INVOICE,
+            confidence=0.98,
+        ),
+    )
+
+    # Mock only the AI extraction boundary.
+    monkeypatch.setattr(
+        "app.ai.extractor.InvoiceExtractor.extract",
+        lambda self, document_text: InvoiceExtraction(
+            invoice_number="INV-001",
+            supplier="ABC Corporation",
+            currency="PHP",
+            total_amount=25000.00,
+        ),
+    )
+
+    # Step 4:
+    # Call the real analyze HTTP endpoint.
+    analyze_response = client.post(
+        f"/documents/{document_id}/analyze",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert analyze_response.status_code == 200
+
+    response_data = analyze_response.json()
+
+    assert response_data["id"] == document_id
+    assert response_data["document_type"] == "invoice"
+    assert response_data["status"] == "analyzed"
+
+    # Step 5:
+    # Reload the document from PostgreSQL.
+    db_session.expire_all()
+
+    document = db_session.query(Document).filter(Document.id == document_id).one()
+
+    # Verify Phase 7 persistence.
+    assert document.document_type == DocumentType.INVOICE
+    assert document.classification_confidence == 0.98
+    assert document.status.value == "analyzed"
+
+    assert document.extracted_data is not None
+    assert document.extracted_data["invoice_number"] == "INV-001"
+    assert document.extracted_data["supplier"] == "ABC Corporation"
+    assert document.extracted_data["currency"] == "PHP"
+    assert document.extracted_data["total_amount"] == 25000.00
+
+    # Verify Phase 8 persistence.
+    assert document.business_rule_result is not None
+
+    assert document.business_rule_result["requires_approval"] is True
+    assert document.business_rule_result["approval_role"] == "manager"
+    assert document.business_rule_result["requires_manual_review"] is False
+    assert document.business_rule_result["next_action"] == "manager_review"
+    assert (
+        document.business_rule_result["reason"]
+        == "Invoice total exceeds the manager approval threshold."
     )

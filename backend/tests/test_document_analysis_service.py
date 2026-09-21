@@ -4,7 +4,9 @@ Unit tests for the persistent document AI analysis workflow.
 These tests verify that DocumentAnalysisService correctly coordinates:
 - document readiness validation
 - AI analysis
+- business-rule evaluation
 - AI result persistence
+- business-rule result persistence
 - document status transitions
 - AI failure handling
 
@@ -18,19 +20,20 @@ from unittest.mock import Mock
 import pytest
 
 from app.ai.exceptions import AIClassificationError, AIExtractionError
-from app.db.enums import DocumentStatus, DocumentType
+from app.db.enums import DocumentStatus, DocumentType, UserRole
 from app.schemas.ai_schema import (
     DocumentAnalysisResult,
     DocumentClassification,
     InvoiceExtraction,
 )
+from app.schemas.business_rule_schema import BusinessAction
 from app.services.document_analysis_service import DocumentAnalysisService
 
 
 def test_analysis_service_persists_successful_invoice_analysis(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Successful invoice analysis should persist results and mark analyzed."""
+    """Successful invoice analysis should persist AI and rule results."""
 
     document = Mock()
     document.status = DocumentStatus.TEXT_EXTRACTED
@@ -58,6 +61,7 @@ def test_analysis_service_persists_successful_invoice_analysis(
 
     mock_update_status = Mock()
     mock_update_ai_analysis = Mock()
+    mock_update_business_rule_result = Mock()
 
     monkeypatch.setattr(
         "app.services.document_analysis_service.update_document_status",
@@ -69,6 +73,11 @@ def test_analysis_service_persists_successful_invoice_analysis(
         mock_update_ai_analysis,
     )
 
+    monkeypatch.setattr(
+        "app.services.document_analysis_service.update_business_rule_result",
+        mock_update_business_rule_result,
+    )
+
     mock_database_session = Mock()
 
     service = DocumentAnalysisService(
@@ -76,9 +85,9 @@ def test_analysis_service_persists_successful_invoice_analysis(
         ai_service=mock_ai_service,
     )
 
-    result = service.analyze(document)
+    analyzed_document, business_rule_result = service.analyze(document)
 
-    assert result is document
+    assert analyzed_document is document
 
     mock_ai_service.analyze_document.assert_called_once_with(document.extracted_text)
 
@@ -102,6 +111,23 @@ def test_analysis_service_persists_successful_invoice_analysis(
     assert extracted_data["invoice_number"] == "INV-001"
     assert extracted_data["supplier"] == "ABC Corporation"
     assert extracted_data["currency"] == "PHP"
+
+    assert business_rule_result.requires_approval is True
+    assert business_rule_result.approval_role == UserRole.MANAGER
+    assert business_rule_result.requires_manual_review is False
+    assert business_rule_result.next_action == BusinessAction.MANAGER_REVIEW
+
+    mock_update_business_rule_result.assert_called_once_with(
+        database_session=mock_database_session,
+        document=document,
+        business_rule_result={
+            "requires_approval": True,
+            "approval_role": "manager",
+            "requires_manual_review": False,
+            "next_action": "manager_review",
+            "reason": "Invoice total exceeds the manager approval threshold.",
+        },
+    )
 
 
 def test_analysis_service_rejects_document_not_ready() -> None:

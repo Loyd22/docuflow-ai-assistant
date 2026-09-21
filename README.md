@@ -1,8 +1,8 @@
 # DocuFlow AI
 
-DocuFlow AI is an AI-powered document-processing and workflow automation system designed to automate business document intake, classification, extraction, routing, approval, and retrieval.
+DocuFlow AI is an AI-powered document-processing and workflow automation system designed to automate business document intake, classification, extraction, business-rule evaluation, routing, approval, and retrieval.
 
-The project is being built incrementally using a modular monolith architecture with clear separation between API routes, schemas, services, repositories, database models, security, file storage, document processing, AI logic, and tests.
+The project is being built incrementally using a modular monolith architecture with clear separation between API routes, schemas, services, repositories, database models, security, file storage, document processing, AI logic, deterministic business rules, and tests.
 
 ---
 
@@ -17,10 +17,11 @@ Completed:
 * Phase 5 — Document Upload
 * Phase 6 — Document Processing
 * Phase 7 — AI Classification & Extraction
+* Phase 8 — Business Rules
 
 Next:
 
-* Phase 8 — Business Rules
+* Phase 9 — Workflow & Approval
 
 ---
 
@@ -44,6 +45,7 @@ Next:
 
 * PostgreSQL 16
 * Psycopg
+* PostgreSQL JSONB
 
 ### Authentication & Security
 
@@ -81,6 +83,16 @@ Next:
 * PostgreSQL JSONB storage for structured extracted data
 * Separate AI evaluation suite for model-quality measurement
 
+### Business Rules
+
+* Deterministic Python business-rule evaluation
+* Document-type-specific rule modules
+* Central business-rules engine
+* Pydantic-validated `BusinessRuleResult`
+* Decimal conversion for financial rule comparisons
+* PostgreSQL JSONB persistence for rule decisions
+* Manual-review fallback for document types whose rules are not implemented yet
+
 ### Infrastructure & Development
 
 * Docker
@@ -114,6 +126,11 @@ backend/
 │   │   ├── dependencies.py
 │   │   └── router.py
 │   │
+│   ├── business_rules/
+│   │   ├── __init__.py
+│   │   ├── engine.py
+│   │   └── invoice_rules.py
+│   │
 │   ├── core/
 │   │   ├── config.py
 │   │   └── security.py
@@ -146,6 +163,7 @@ backend/
 │   ├── schemas/
 │   │   ├── ai_schema.py
 │   │   ├── auth_schema.py
+│   │   ├── business_rule_schema.py
 │   │   └── document_schema.py
 │   │
 │   ├── services/
@@ -169,18 +187,22 @@ backend/
 │   └── run_invoice_extraction_eval.py
 │
 ├── migrations/
+│   └── versions/
 │
 ├── tests/
 │   ├── conftest.py
 │   ├── test_auth_api.py
 │   ├── test_auth_service.py
+│   ├── test_business_rule_engine.py
 │   ├── test_document_api.py
 │   ├── test_document_processing_service.py
 │   ├── test_document_service.py
 │   ├── test_document_classifier.py
 │   ├── test_invoice_extractor.py
+│   ├── test_invoice_rules.py
 │   ├── test_document_ai_service.py
 │   ├── test_document_analysis_service.py
+│   ├── test_document_analysis_integration.py
 │   ├── test_docx_extractor.py
 │   ├── test_extractor_factory.py
 │   ├── test_health.py
@@ -205,6 +227,8 @@ Pydantic Schema / FastAPI Input
 API Route
 ↓
 Service
+↓
+Domain / Business Logic
 ↓
 Repository
 ↓
@@ -254,12 +278,57 @@ Invoice Extractor when document_type = invoice
 ↓
 Validated Pydantic Structured Output
 ↓
+Business Rules Engine
+↓
+Document-Specific Rules
+↓
+BusinessRuleResult
+↓
 Document Repository
 ↓
 PostgreSQL
 ```
 
 Security-specific functionality is kept inside the core security layer.
+
+---
+
+## Separation of Concerns
+
+DocuFlow keeps responsibilities separated by layer.
+
+```text
+api/routes/
+→ HTTP request and response handling
+
+services/
+→ application workflow orchestration
+
+repositories/
+→ database access and persistence
+
+schemas/
+→ validated data contracts
+
+db/models/
+→ database table structure and relationships
+
+ai/
+→ AI-provider logic, prompts, classification, extraction
+
+processing/
+→ deterministic file and text extraction
+
+business_rules/
+→ deterministic company/domain policy
+
+storage/
+→ physical file persistence
+```
+
+A new development phase does not automatically require a new folder.
+
+A new package is introduced when the code represents a distinct responsibility that should remain isolated from the existing layers.
 
 ---
 
@@ -279,7 +348,7 @@ Do not use `Base.metadata.create_all()` as the normal development or production 
 
 The automated integration-test environment may use `create_all()` and `drop_all()` to create and remove an isolated disposable test schema.
 
-The `documents` table stores metadata and processing results including:
+The `documents` table currently stores:
 
 ```text
 id
@@ -294,10 +363,46 @@ status
 extracted_text
 classification_confidence
 extracted_data
+business_rule_result
 summary
 created_at
 updated_at
 ```
+
+### Structured JSONB Data
+
+`extracted_data` stores structured AI extraction results.
+
+Example:
+
+```json
+{
+  "invoice_number": "INV-2026-001",
+  "supplier": "ABC Office Supplies",
+  "invoice_date": "2026-09-18",
+  "due_date": "2026-09-30",
+  "currency": "PHP",
+  "subtotal": 22000.0,
+  "tax": 2640.0,
+  "total_amount": 24640.0
+}
+```
+
+`business_rule_result` stores the deterministic Phase 8 decision.
+
+Example:
+
+```json
+{
+  "requires_approval": true,
+  "approval_role": "manager",
+  "requires_manual_review": false,
+  "next_action": "manager_review",
+  "reason": "Invoice total exceeds the manager approval threshold."
+}
+```
+
+The `business_rule_result` column is nullable so documents created before Phase 8 remain valid.
 
 ---
 
@@ -423,7 +528,7 @@ Phase 5 introduced authenticated document uploads with validation, local file st
 POST /documents
 ```
 
-The endpoint requires authentication:
+The endpoint requires authentication.
 
 ```text
 Authorization: Bearer <access_token>
@@ -433,8 +538,6 @@ Anonymous users cannot upload documents.
 
 ### Supported File Types
 
-The current upload implementation accepts:
-
 ```text
 .pdf
 .docx
@@ -442,8 +545,6 @@ The current upload implementation accepts:
 ```
 
 ### Maximum File Size
-
-The current maximum upload size is:
 
 ```text
 10 MB
@@ -483,7 +584,7 @@ Uploaded files are currently stored locally in:
 backend/uploads/
 ```
 
-The storage layer generates a unique internal filename using a UUID rather than directly storing the file using its user-provided name.
+The storage layer generates a unique internal filename using a UUID rather than storing the file directly using its user-provided name.
 
 Example:
 
@@ -509,8 +610,6 @@ status = uploaded
 ### Uploader Identity
 
 Clients do not provide `uploaded_by` themselves.
-
-Instead:
 
 ```text
 JWT
@@ -550,8 +649,6 @@ file_path
 are not exposed through the public response.
 
 ### Upload Failure Cleanup
-
-If the physical file is saved but database persistence fails:
 
 ```text
 Save file
@@ -708,8 +805,6 @@ processing_failed
 
 ### Empty Extraction Handling
 
-If extraction returns only empty or whitespace content:
-
 ```text
 Extraction result
 ↓
@@ -781,7 +876,7 @@ The document must already have:
 status = text_extracted
 ```
 
-before AI analysis begins.
+before analysis begins.
 
 ### AI Analysis Flow
 
@@ -808,11 +903,11 @@ Structured Extractor when supported
 ↓
 Validate structured output with Pydantic
 ↓
-Persist document_type
+Business Rules Engine
 ↓
-Persist classification_confidence
+Persist AI result
 ↓
-Persist extracted_data
+Persist business-rule result
 ↓
 Set status = analyzed
 ↓
@@ -867,13 +962,13 @@ document_ai_service.py
 → orchestrates classification and structured extraction
 
 document_analysis_service.py
-→ coordinates document lifecycle, persistence, and AI analysis
+→ coordinates AI analysis, business rules, persistence, and document state
 
 document_repository.py
-→ persists AI results and document statuses
+→ persists AI results, business-rule results, and document statuses
 ```
 
-Provider-specific logic is kept outside API routes and database repositories.
+Provider-specific logic is kept outside API routes and repositories.
 
 ### Supported Classification Types
 
@@ -933,7 +1028,13 @@ Example:
 
 Monetary values currently use floating-point numbers in the AI-facing structured schema because this produces a Structured Outputs-compatible JSON schema.
 
-Precise financial arithmetic in later business-rule phases can convert values to decimal representations before calculations.
+The deterministic business-rule layer converts financial values using:
+
+```python
+Decimal(str(total_amount))
+```
+
+before financial comparisons.
 
 ### Structured Outputs and Validation
 
@@ -945,7 +1046,6 @@ Classification uses:
 
 ```text
 DocumentClassification
-
 document_type
 confidence
 ```
@@ -954,7 +1054,6 @@ Invoice extraction uses:
 
 ```text
 InvoiceExtraction
-
 invoice_number
 supplier
 invoice_date
@@ -969,123 +1068,237 @@ The combined result is represented by:
 
 ```text
 DocumentAnalysisResult
-
 classification
 extracted_data
 ```
 
 This provides a predictable contract between the AI layer and application services.
 
-### AI Persistence
+---
 
-The `documents` table now stores:
+## Business Rules
+
+Phase 8 introduced deterministic business-rule evaluation after AI classification and structured extraction.
+
+The AI is responsible for extracting facts.
+
+The business-rule layer is responsible for deciding what should happen based on those facts.
 
 ```text
-document_type
-classification_confidence
-extracted_data
+AI
+→ What information is inside this document?
+
+Business Rules
+→ What should the system do based on that information?
+
+Workflow & Approval
+→ Carry out that decision
 ```
 
-`extracted_data` uses PostgreSQL `JSONB` so different document types can eventually store different structured field sets without creating many document-specific columns.
+### Business Rules Architecture
+
+```text
+app/business_rules/
+├── __init__.py
+├── engine.py
+└── invoice_rules.py
+```
+
+Supporting schema:
+
+```text
+app/schemas/business_rule_schema.py
+```
+
+Responsibilities:
+
+```text
+business_rule_schema.py
+→ defines the validated BusinessRuleResult contract
+
+engine.py
+→ selects the appropriate document-specific rule evaluator
+
+invoice_rules.py
+→ contains deterministic invoice company-policy logic
+
+DocumentAnalysisService
+→ coordinates AI analysis, business-rule evaluation, and persistence
+
+document_repository.py
+→ persists the final decision
+```
+
+Business rules do not:
+
+* call OpenAI
+* handle HTTP
+* query PostgreSQL directly
+* create workflow records
+* create approval records
+
+### Business Rule Result
+
+Phase 8 produces a structured decision containing:
+
+```text
+requires_approval
+approval_role
+requires_manual_review
+next_action
+reason
+```
 
 Example:
 
 ```json
 {
-  "invoice_number": "INV-2026-001",
-  "supplier": "ABC Office Supplies",
-  "invoice_date": "2026-09-18",
-  "due_date": "2026-09-30",
-  "currency": "PHP",
-  "subtotal": 22000.0,
-  "tax": 2640.0,
-  "total_amount": 24640.0
+  "requires_approval": true,
+  "approval_role": "manager",
+  "requires_manual_review": false,
+  "next_action": "manager_review",
+  "reason": "Invoice total exceeds the manager approval threshold."
 }
 ```
 
-Database changes are managed through Alembic migrations, including:
+### Business Actions
+
+Current actions include:
 
 ```text
-classification_confidence column
-extracted_data JSONB column
-ai_processing enum value
-analyzed enum value
-ai_processing_failed enum value
+continue_processing
+manager_review
+manual_review
 ```
 
-### AI Processing Status Lifecycle
+These values are controlled through `BusinessAction` rather than arbitrary strings.
 
-Successful AI analysis:
+### Invoice Business Rules
+
+The current invoice MVP contains three deterministic paths.
+
+#### Missing Invoice Total
 
 ```text
-text_extracted
+total_amount = null
 ↓
-ai_processing
+requires_manual_review = true
 ↓
-analyzed
+next_action = manual_review
 ```
 
-Failed AI analysis:
+#### High-Value Invoice
+
+Current MVP threshold:
 
 ```text
-text_extracted
-↓
-ai_processing
-↓
-ai_processing_failed
+20,000
 ```
 
-This distinguishes text-extraction failures from AI-analysis failures.
-
-### AI API Error Handling
-
-The analysis endpoint maps expected conditions to controlled responses:
+Rule:
 
 ```text
-Document does not exist
-→ 404 Not Found
-
-Authenticated user does not own document
-→ 403 Forbidden
-
-Document is not ready for AI analysis
-→ 400 Bad Request
-
-AI provider is not configured
-→ 503 Service Unavailable
-
-Classification or extraction fails
-→ 502 Bad Gateway
-
-Successful analysis
-→ 200 OK
+total_amount > 20,000
+↓
+requires_approval = true
+↓
+approval_role = manager
+↓
+next_action = manager_review
 ```
 
-Raw provider exceptions are not returned to API clients.
+The threshold is represented using `Decimal`.
 
-Internal AI-layer logging preserves provider errors for debugging.
-
-### Real End-to-End AI Verification
-
-Phase 7 was verified using a real invoice flow:
+Example:
 
 ```text
-Upload TXT invoice
-↓
-Extract text
-↓
-Real OpenAI classification request
-↓
-Classify as invoice
-↓
-Real structured invoice extraction request
-↓
-Persist AI results
-↓
-status = analyzed
+20,000.00
+→ continue_processing
+
+20,000.01
+→ manager_review
 ```
 
-This confirmed that the API, AI provider, Pydantic structured outputs, PostgreSQL persistence, and document-status lifecycle work together.
+#### Normal Invoice
+
+```text
+total_amount <= 20,000
+↓
+requires_approval = false
+↓
+requires_manual_review = false
+↓
+next_action = continue_processing
+```
+
+### Unsupported Rule Types
+
+Phase 7 can classify document types whose detailed Phase 8 rules have not yet been implemented.
+
+For example:
+
+```text
+contract
+sop
+purchase_request
+policy
+```
+
+These documents are not silently treated as approved.
+
+Instead:
+
+```text
+rule type not implemented
+↓
+requires_manual_review = true
+↓
+next_action = manual_review
+```
+
+This provides a safe fallback while document-specific rules are added incrementally.
+
+### Business Rule Persistence
+
+The final rule result is serialized using:
+
+```text
+model_dump(mode="json")
+```
+
+and stored in:
+
+```text
+documents.business_rule_result
+```
+
+using PostgreSQL `JSONB`.
+
+This allows Phase 9 to consume the deterministic decision later.
+
+### Phase Boundary
+
+Phase 8 ends with:
+
+```text
+evaluate document
+↓
+produce BusinessRuleResult
+↓
+persist decision
+```
+
+Phase 8 does not create actual workflow or approval records.
+
+That belongs to Phase 9.
+
+```text
+Phase 8
+DECIDE
+
+Phase 9
+ACT
+```
 
 ---
 
@@ -1095,10 +1308,10 @@ AI evaluations are kept separately from normal `pytest` software tests.
 
 ```text
 tests/
-→ verifies software behavior using deterministic tests and mocks
+→ verifies deterministic software behavior
 
 evals/
-→ measures real model quality using fixed ground-truth examples
+→ measures real AI/model quality using fixed ground-truth examples
 ```
 
 Current evaluation commands:
@@ -1312,6 +1525,40 @@ Development and production database schema changes should be applied through Ale
 
 Some PostgreSQL-native enum changes require manually authored Alembic migration commands because enum-value additions may not be generated automatically.
 
+### Phase 8 Migration
+
+Phase 8 introduced:
+
+```text
+5aaeace5f9f9
+```
+
+Description:
+
+```text
+add business rule result to documents
+```
+
+It adds:
+
+```text
+documents.business_rule_result
+```
+
+as a nullable PostgreSQL `JSONB` column.
+
+After applying Phase 8:
+
+```bash
+alembic current
+```
+
+should show:
+
+```text
+5aaeace5f9f9 (head)
+```
+
 ---
 
 ## Run the Backend
@@ -1471,6 +1718,15 @@ A dedicated successful PDF extraction fixture can be expanded later.
 * extracted-text persistence
 * processing-status persistence
 
+#### AI Analysis and Business Rules
+
+* authenticated invoice analysis
+* AI result persistence
+* business-rule execution
+* `business_rule_result` JSONB persistence
+* high-value invoice manager-review routing
+* successful analyzed status through the HTTP API
+
 ### AI Unit and Workflow Tests
 
 Phase 7 testing includes:
@@ -1490,6 +1746,26 @@ Phase 7 testing includes:
 * AI-processing status transitions
 * AI failure-state handling
 
+### Business Rule Tests
+
+Phase 8 testing includes:
+
+* missing invoice total requires manual review
+* high-value invoice requires manager approval
+* invoice exactly at approval threshold continues processing
+* invoice below approval threshold continues processing
+* invoice routing through `BusinessRulesEngine`
+* invoice without structured extraction is rejected
+* unsupported rule types fall back to manual review
+* `DocumentAnalysisService` returns a `BusinessRuleResult`
+* business-rule persistence call verification
+* PostgreSQL JSONB integration verification
+* high-value invoice persistence
+* missing-total persistence
+* normal-invoice persistence
+* unsupported document-type persistence
+* HTTP-level business-rule integration
+
 ### Test Database
 
 A separate PostgreSQL test database is used for integration testing:
@@ -1506,13 +1782,19 @@ Temporary filesystem locations are also used during document tests to avoid poll
 backend/uploads/
 ```
 
-### Current Test Result
+The integration-test database is created from SQLAlchemy metadata and isolated using database transactions.
 
-After Phase 7 implementation:
+### Current Test Status
 
-```text
-66 passed
+The full `pytest` suite passes after the Phase 8 implementation.
+
+The exact test count should be taken from the latest local:
+
+```bash
+pytest -v
 ```
+
+output when maintaining this README.
 
 The test suite currently covers:
 
@@ -1536,6 +1818,11 @@ The test suite currently covers:
 * AI orchestration
 * persistent AI-analysis workflow
 * AI failure-state handling
+* deterministic invoice business rules
+* business-rule engine routing
+* business-rule persistence
+* PostgreSQL JSONB rule-result persistence
+* business-rule API integration
 
 ---
 
@@ -1614,21 +1901,22 @@ RAG / Document Q&A
 Dashboard & Audit Logs
 ```
 
-The first three major stages are now implemented:
+The first four major stages are now implemented:
 
 ```text
 Document Upload                  ✅
 Text Extraction                  ✅
 AI Classification & Extraction  ✅
+Business Rule Validation         ✅
 ```
 
 The next stage is:
 
 ```text
-Business Rule Validation
+Workflow Routing & Approval
 ```
 
-which will be introduced in Phase 8.
+which will be introduced in Phase 9.
 
 ---
 
@@ -1659,22 +1947,26 @@ Phase 7 classifies that text using the AI layer.
 
 Structured extraction is currently implemented for invoices.
 
-Additional document-specific extraction schemas can be added incrementally as requirements grow.
+Phase 8 contains detailed deterministic rules for invoices.
+
+Other classified document types currently fall back to manual review until their structured extraction and document-specific business rules are implemented.
+
+Additional document-specific extraction schemas and business rules can be added incrementally as requirements grow.
 
 ---
 
 ## Development Phases
 
 ```text
-Phase 1  — Project Setup                         ✅ Completed
-Phase 2  — Backend Foundation                    ✅ Completed
-Phase 3  — Database Design                       ✅ Completed
-Phase 4  — Authentication & Authorization        ✅ Completed
-Phase 5  — Document Upload                       ✅ Completed
-Phase 6  — Document Processing                   ✅ Completed
-Phase 7  — AI Classification & Extraction        ✅ Completed
-Phase 8  — Business Rules                        ← Next
-Phase 9  — Workflow & Approval
+Phase 1  — Project Setup                       ✅ Completed
+Phase 2  — Backend Foundation                  ✅ Completed
+Phase 3  — Database Design                     ✅ Completed
+Phase 4  — Authentication & Authorization      ✅ Completed
+Phase 5  — Document Upload                     ✅ Completed
+Phase 6  — Document Processing                 ✅ Completed
+Phase 7  — AI Classification & Extraction      ✅ Completed
+Phase 8  — Business Rules                      ✅ Completed
+Phase 9  — Workflow & Approval                 ← Next
 Phase 10 — RAG / Document Q&A
 Phase 11 — Dashboard & Audit Logs
 Phase 12 — Frontend
@@ -1801,15 +2093,12 @@ Persist classification_confidence
 ↓
 Persist extracted_data
 ↓
-status = analyzed
+Pass validated data into Phase 8
 ```
 
-Current quality baseline:
+Current AI quality baseline:
 
 ```text
-Software tests:
-66 passed
-
 Classification eval:
 6 / 7 correct
 85.71% on current evaluation set
@@ -1819,10 +2108,191 @@ Invoice extraction eval:
 100.00% on current evaluation set
 ```
 
+---
+
+## Phase 8 Completion Summary
+
+Phase 8 introduced DocuFlow's deterministic business-rule layer.
+
+The objective was to separate AI understanding from company policy.
+
+```text
+Phase 7
+AI determines the facts
+
+↓
+
+Phase 8
+Deterministic Python rules determine what should happen
+
+↓
+
+Phase 9
+Workflow and approval logic will execute the decision
+```
+
+Implemented:
+
+```text
+Dedicated business_rules package
+
+BusinessRuleResult Pydantic contract
+
+BusinessAction controlled values
+
+BusinessRulesEngine
+
+Invoice-specific deterministic rules
+
+Manager approval threshold
+
+Decimal-based financial comparison
+
+Manual-review handling for missing invoice totals
+
+Continue-processing path for normal invoices
+
+Manual-review fallback for unsupported document rule types
+
+DocumentAnalysisService business-rule integration
+
+business_rule_result JSONB persistence
+
+Document repository persistence helper
+
+Alembic migration for business_rule_result
+
+Invoice-rule unit tests
+
+BusinessRulesEngine unit tests
+
+DocumentAnalysisService integration tests
+
+Real PostgreSQL persistence tests
+
+HTTP API integration verification
+
+Real Swagger/OpenAI invoice verification
+```
+
+### Current Phase 8 Flow
+
+```text
+Validated DocumentAnalysisResult
+↓
+BusinessRulesEngine
+↓
+Determine document rule type
+↓
+Invoice Rules when document_type = invoice
+↓
+BusinessRuleResult
+↓
+Serialize to JSON-compatible data
+↓
+Persist business_rule_result
+↓
+status = analyzed
+```
+
+### Current Invoice Rules
+
+```text
+Missing total amount
+→ manual_review
+
+Total amount <= 20,000
+→ continue_processing
+
+Total amount > 20,000
+→ manager_review
+```
+
+Example high-value invoice:
+
+```text
+Total Amount: 28,000
+↓
+BusinessRulesEngine
+↓
+Invoice Rules
+↓
+requires_approval = true
+approval_role = manager
+next_action = manager_review
+```
+
+### Unsupported Document Rules
+
+If Phase 7 classifies a document successfully but Phase 8 does not yet have detailed rules for that type:
+
+```text
+Contract / SOP / Purchase Request / etc.
+↓
+BusinessRulesEngine
+↓
+manual_review
+```
+
+The system does not silently assume that unsupported documents have passed business validation.
+
+### Persistence
+
+Phase 8 stores its decision in:
+
+```text
+documents.business_rule_result
+```
+
+using PostgreSQL `JSONB`.
+
+Migration:
+
+```text
+5aaeace5f9f9
+add business rule result to documents
+```
+
+### Real End-to-End Verification
+
+Phase 8 was manually verified through Swagger using a real invoice.
+
+```text
+Upload invoice
+↓
+Process text
+↓
+Real OpenAI classification
+↓
+Real structured invoice extraction
+↓
+Business Rules Engine
+↓
+High-value invoice rule
+↓
+manager_review
+↓
+Persist decision in PostgreSQL
+```
+
+This confirmed that the real FastAPI application, OpenAI integration, business-rule layer, repository layer, SQLAlchemy, Alembic-managed schema, and PostgreSQL database work together.
+
 DocuFlow is now ready to move into:
 
 ```text
-Phase 8 — Business Rules
+Phase 9 — Workflow & Approval
 ```
 
-Phase 8 will consume validated Phase 7 structured data and apply deterministic company rules to decide what should happen next.
+Phase 9 will consume the deterministic Phase 8 decision and turn it into actual workflow and approval records.
+
+The intended boundary is:
+
+```text
+Phase 8
+DECIDE
+
+↓
+
+Phase 9
+ACT
+```

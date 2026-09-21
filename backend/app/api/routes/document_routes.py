@@ -158,7 +158,7 @@ def analyze_document(
             ai_service=ai_service,
         )
 
-        analyzed_document = analysis_service.analyze(document)
+        analyzed_document, _ = analysis_service.analyze(document)
 
         return DocumentResponse.model_validate(analyzed_document)
 

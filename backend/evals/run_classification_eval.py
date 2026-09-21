@@ -26,13 +26,9 @@ def run_classification_eval() -> None:
     print("=" * 40)
 
     for case in CLASSIFICATION_CASES:
-        result = classifier.classify(
-            case.document_text
-        )
+        result = classifier.classify(case.document_text)
 
-        is_correct = (
-            result.document_type == case.expected_type
-        )
+        is_correct = result.document_type == case.expected_type
 
         if is_correct:
             correct_cases += 1
@@ -44,11 +40,7 @@ def run_classification_eval() -> None:
         print(f"Predicted:  {result.document_type.value}")
         print(f"Confidence: {result.confidence:.2f}")
 
-    accuracy = (
-        correct_cases / total_cases
-        if total_cases
-        else 0.0
-    )
+    accuracy = correct_cases / total_cases if total_cases else 0.0
 
     print("\n" + "=" * 40)
     print(f"Correct:  {correct_cases}/{total_cases}")
