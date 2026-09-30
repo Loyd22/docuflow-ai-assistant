@@ -26,6 +26,7 @@ from app.services.document_ai_service import DocumentAIService
 from app.services.document_analysis_service import DocumentAnalysisService
 from app.services.document_processing_service import process_document
 from app.services.document_service import upload_document
+from app.services.workflow_service import WorkflowService
 
 router = APIRouter(
     prefix="/documents",
@@ -146,6 +147,11 @@ def analyze_document(
             client=client,
         )
 
+        # Coordinate Phase 9 workflow persistence and approval state.
+        workflow_service = WorkflowService(
+            database_session=database_session,
+        )
+
         # Coordinate classification and structured extraction.
         ai_service = DocumentAIService(
             classifier=classifier,
@@ -156,6 +162,7 @@ def analyze_document(
         analysis_service = DocumentAnalysisService(
             database_session=database_session,
             ai_service=ai_service,
+            workflow_service=workflow_service,
         )
 
         analyzed_document, _ = analysis_service.analyze(document)

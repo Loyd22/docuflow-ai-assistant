@@ -22,6 +22,7 @@ from app.repositories.document_repository import (
 )
 from app.schemas.business_rule_schema import BusinessRuleResult
 from app.services.document_ai_service import DocumentAIService
+from app.services.workflow_service import WorkflowService
 
 
 class DocumentAnalysisService:
@@ -31,9 +32,11 @@ class DocumentAnalysisService:
         self,
         database_session: Session,
         ai_service: DocumentAIService,
+        workflow_service: WorkflowService,
     ) -> None:
         self.database_session = database_session
         self.ai_service = ai_service
+        self.workflow_service = workflow_service
 
     def analyze(
         self,
@@ -102,6 +105,14 @@ class DocumentAnalysisService:
                 database_session=self.database_session,
                 document=document,
                 business_rule_result=business_rule_data,
+            )
+
+            # Phase 9:
+            # Convert the deterministic Phase 8 decision into
+            # persistent workflow state.
+            self.workflow_service.create_from_business_rule(
+                document=document,
+                business_rule_result=business_rule_result,
             )
 
             # The document is considered fully analyzed only

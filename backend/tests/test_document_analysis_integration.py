@@ -2,19 +2,26 @@
 Integration tests for persistent document analysis.
 
 These tests verify that DocumentAnalysisService, business rules,
-repositories, SQLAlchemy, and PostgreSQL work together correctly.
+workflow services, repositories, SQLAlchemy, and PostgreSQL
+work together correctly.
 
-The AI service is mocked so the test remains deterministic and
-does not make external provider requests.
+The AI service is mocked so the tests remain deterministic and
+do not make external provider requests.
 """
 
 from unittest.mock import Mock
 
 from sqlalchemy.orm import Session
 
-from app.db.enums import DocumentStatus, DocumentType, UserRole
+from app.db.enums import (
+    DocumentStatus,
+    DocumentType,
+    UserRole,
+    WorkflowStatus,
+)
 from app.db.models.document import Document
 from app.db.models.user import User
+from app.db.models.workflow import Workflow
 from app.schemas.ai_schema import (
     DocumentAnalysisResult,
     DocumentClassification,
@@ -22,15 +29,14 @@ from app.schemas.ai_schema import (
 )
 from app.schemas.business_rule_schema import BusinessAction
 from app.services.document_analysis_service import DocumentAnalysisService
+from app.services.workflow_service import WorkflowService
 
 
 def test_invoice_analysis_persists_business_rule_result(
     db_session: Session,
 ) -> None:
-    """Invoice analysis should persist AI and business-rule results."""
+    """Invoice analysis should persist AI, business-rule, and workflow results."""
 
-    # Create a real user because Document.uploaded_by
-    # has a foreign-key relationship to users.id.
     user = User(
         name="Integration Test User",
         email="analysis-integration@example.com",
@@ -43,7 +49,6 @@ def test_invoice_analysis_persists_business_rule_result(
     db_session.commit()
     db_session.refresh(user)
 
-    # Create a real document that is already ready for AI analysis.
     document = Document(
         uploaded_by=user.id,
         original_file_name="invoice.txt",
@@ -65,8 +70,6 @@ def test_invoice_analysis_persists_business_rule_result(
     db_session.commit()
     db_session.refresh(document)
 
-    # Mock only the AI boundary.
-    # Everything after this result is real application code.
     analysis_result = DocumentAnalysisResult(
         classification=DocumentClassification(
             document_type=DocumentType.INVOICE,
@@ -83,21 +86,26 @@ def test_invoice_analysis_persists_business_rule_result(
     mock_ai_service = Mock()
     mock_ai_service.analyze_document.return_value = analysis_result
 
+    workflow_service = WorkflowService(
+        database_session=db_session,
+    )
+
     service = DocumentAnalysisService(
         database_session=db_session,
         ai_service=mock_ai_service,
+        workflow_service=workflow_service,
     )
 
     analyzed_document, business_rule_result = service.analyze(document)
 
-    # Verify the returned Phase 8 decision.
+    # Verify Phase 8 decision returned by the service.
     assert business_rule_result.requires_approval is True
     assert business_rule_result.approval_role == UserRole.MANAGER
     assert business_rule_result.requires_manual_review is False
     assert business_rule_result.next_action == BusinessAction.MANAGER_REVIEW
 
     # Clear SQLAlchemy's cached object state so the following
-    # lookup reloads persisted values from PostgreSQL.
+    # lookups reload persisted values from PostgreSQL.
     db_session.expire_all()
 
     persisted_document = db_session.get(
@@ -130,11 +138,22 @@ def test_invoice_analysis_persists_business_rule_result(
         == "Invoice total exceeds the manager approval threshold."
     )
 
+    # Verify Phase 9 workflow persistence.
+    persisted_workflow = (
+        db_session.query(Workflow)
+        .filter(Workflow.document_id == analyzed_document.id)
+        .one_or_none()
+    )
+
+    assert persisted_workflow is not None
+    assert persisted_workflow.current_status == WorkflowStatus.PENDING_APPROVAL
+    assert persisted_workflow.recommended_action == "manager_review"
+
 
 def test_invoice_with_missing_total_requires_manual_review(
     db_session: Session,
 ) -> None:
-    """Missing invoice total should persist a manual-review decision."""
+    """Missing invoice total should persist a manual-review workflow."""
 
     user = User(
         name="Missing Total User",
@@ -179,16 +198,24 @@ def test_invoice_with_missing_total_requires_manual_review(
     mock_ai_service = Mock()
     mock_ai_service.analyze_document.return_value = analysis_result
 
+    workflow_service = WorkflowService(
+        database_session=db_session,
+    )
+
     service = DocumentAnalysisService(
         database_session=db_session,
         ai_service=mock_ai_service,
+        workflow_service=workflow_service,
     )
 
     service.analyze(document)
 
     db_session.expire_all()
 
-    persisted_document = db_session.get(Document, document.id)
+    persisted_document = db_session.get(
+        Document,
+        document.id,
+    )
 
     assert persisted_document is not None
     assert persisted_document.business_rule_result is not None
@@ -196,11 +223,21 @@ def test_invoice_with_missing_total_requires_manual_review(
     assert persisted_document.business_rule_result["requires_manual_review"] is True
     assert persisted_document.business_rule_result["next_action"] == "manual_review"
 
+    persisted_workflow = (
+        db_session.query(Workflow)
+        .filter(Workflow.document_id == document.id)
+        .one_or_none()
+    )
+
+    assert persisted_workflow is not None
+    assert persisted_workflow.current_status == WorkflowStatus.NEEDS_REVIEW
+    assert persisted_workflow.recommended_action == "manual_review"
+
 
 def test_invoice_below_threshold_continues_processing(
     db_session: Session,
 ) -> None:
-    """Invoice below approval threshold should continue processing."""
+    """Invoice below approval threshold should create a completed workflow."""
 
     user = User(
         name="Normal Invoice User",
@@ -245,16 +282,24 @@ def test_invoice_below_threshold_continues_processing(
     mock_ai_service = Mock()
     mock_ai_service.analyze_document.return_value = analysis_result
 
+    workflow_service = WorkflowService(
+        database_session=db_session,
+    )
+
     service = DocumentAnalysisService(
         database_session=db_session,
         ai_service=mock_ai_service,
+        workflow_service=workflow_service,
     )
 
     service.analyze(document)
 
     db_session.expire_all()
 
-    persisted_document = db_session.get(Document, document.id)
+    persisted_document = db_session.get(
+        Document,
+        document.id,
+    )
 
     assert persisted_document is not None
     assert persisted_document.business_rule_result is not None
@@ -264,11 +309,21 @@ def test_invoice_below_threshold_continues_processing(
         persisted_document.business_rule_result["next_action"] == "continue_processing"
     )
 
+    persisted_workflow = (
+        db_session.query(Workflow)
+        .filter(Workflow.document_id == document.id)
+        .one_or_none()
+    )
+
+    assert persisted_workflow is not None
+    assert persisted_workflow.current_status == WorkflowStatus.COMPLETED
+    assert persisted_workflow.recommended_action == "continue_processing"
+
 
 def test_unsupported_document_type_requires_manual_review(
     db_session: Session,
 ) -> None:
-    """Unsupported business-rule types should persist manual review."""
+    """Unsupported business-rule types should create manual-review workflows."""
 
     user = User(
         name="Contract Review User",
@@ -309,19 +364,37 @@ def test_unsupported_document_type_requires_manual_review(
     mock_ai_service = Mock()
     mock_ai_service.analyze_document.return_value = analysis_result
 
+    workflow_service = WorkflowService(
+        database_session=db_session,
+    )
+
     service = DocumentAnalysisService(
         database_session=db_session,
         ai_service=mock_ai_service,
+        workflow_service=workflow_service,
     )
 
     service.analyze(document)
 
     db_session.expire_all()
 
-    persisted_document = db_session.get(Document, document.id)
+    persisted_document = db_session.get(
+        Document,
+        document.id,
+    )
 
     assert persisted_document is not None
     assert persisted_document.business_rule_result is not None
     assert persisted_document.business_rule_result["requires_approval"] is False
     assert persisted_document.business_rule_result["requires_manual_review"] is True
     assert persisted_document.business_rule_result["next_action"] == "manual_review"
+
+    persisted_workflow = (
+        db_session.query(Workflow)
+        .filter(Workflow.document_id == document.id)
+        .one_or_none()
+    )
+
+    assert persisted_workflow is not None
+    assert persisted_workflow.current_status == WorkflowStatus.NEEDS_REVIEW
+    assert persisted_workflow.recommended_action == "manual_review"

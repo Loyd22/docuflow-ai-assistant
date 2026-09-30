@@ -7,11 +7,12 @@ These tests verify that DocumentAnalysisService correctly coordinates:
 - business-rule evaluation
 - AI result persistence
 - business-rule result persistence
+- workflow creation
 - document status transitions
 - AI failure handling
 
-External AI calls and repository operations are mocked so these tests
-remain fast and deterministic.
+External AI calls, workflow operations, and repository operations are
+mocked so these tests remain fast and deterministic.
 """
 
 from decimal import Decimal
@@ -33,7 +34,7 @@ from app.services.document_analysis_service import DocumentAnalysisService
 def test_analysis_service_persists_successful_invoice_analysis(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Successful invoice analysis should persist AI and rule results."""
+    """Successful invoice analysis should persist AI, rules, and workflow."""
 
     document = Mock()
     document.status = DocumentStatus.TEXT_EXTRACTED
@@ -59,6 +60,8 @@ def test_analysis_service_persists_successful_invoice_analysis(
     mock_ai_service = Mock()
     mock_ai_service.analyze_document.return_value = analysis_result
 
+    mock_workflow_service = Mock()
+
     mock_update_status = Mock()
     mock_update_ai_analysis = Mock()
     mock_update_business_rule_result = Mock()
@@ -83,6 +86,7 @@ def test_analysis_service_persists_successful_invoice_analysis(
     service = DocumentAnalysisService(
         database_session=mock_database_session,
         ai_service=mock_ai_service,
+        workflow_service=mock_workflow_service,
     )
 
     analyzed_document, business_rule_result = service.analyze(document)
@@ -129,6 +133,11 @@ def test_analysis_service_persists_successful_invoice_analysis(
         },
     )
 
+    mock_workflow_service.create_from_business_rule.assert_called_once_with(
+        document=document,
+        business_rule_result=business_rule_result,
+    )
+
 
 def test_analysis_service_rejects_document_not_ready() -> None:
     """Documents that have not completed text extraction should be rejected."""
@@ -138,11 +147,13 @@ def test_analysis_service_rejects_document_not_ready() -> None:
     document.extracted_text = None
 
     mock_ai_service = Mock()
+    mock_workflow_service = Mock()
     mock_database_session = Mock()
 
     service = DocumentAnalysisService(
         database_session=mock_database_session,
         ai_service=mock_ai_service,
+        workflow_service=mock_workflow_service,
     )
 
     with pytest.raises(
@@ -152,6 +163,7 @@ def test_analysis_service_rejects_document_not_ready() -> None:
         service.analyze(document)
 
     mock_ai_service.analyze_document.assert_not_called()
+    mock_workflow_service.create_from_business_rule.assert_not_called()
 
 
 def test_analysis_service_rejects_missing_extracted_text() -> None:
@@ -162,11 +174,13 @@ def test_analysis_service_rejects_missing_extracted_text() -> None:
     document.extracted_text = None
 
     mock_ai_service = Mock()
+    mock_workflow_service = Mock()
     mock_database_session = Mock()
 
     service = DocumentAnalysisService(
         database_session=mock_database_session,
         ai_service=mock_ai_service,
+        workflow_service=mock_workflow_service,
     )
 
     with pytest.raises(
@@ -176,6 +190,7 @@ def test_analysis_service_rejects_missing_extracted_text() -> None:
         service.analyze(document)
 
     mock_ai_service.analyze_document.assert_not_called()
+    mock_workflow_service.create_from_business_rule.assert_not_called()
 
 
 def test_analysis_service_marks_failed_on_classification_error(
@@ -192,6 +207,7 @@ def test_analysis_service_marks_failed_on_classification_error(
         "Document classification failed."
     )
 
+    mock_workflow_service = Mock()
     mock_update_status = Mock()
 
     monkeypatch.setattr(
@@ -204,6 +220,7 @@ def test_analysis_service_marks_failed_on_classification_error(
     service = DocumentAnalysisService(
         database_session=mock_database_session,
         ai_service=mock_ai_service,
+        workflow_service=mock_workflow_service,
     )
 
     with pytest.raises(AIClassificationError):
@@ -216,6 +233,8 @@ def test_analysis_service_marks_failed_on_classification_error(
 
     second_status_call = mock_update_status.call_args_list[1]
     assert second_status_call.kwargs["status"] == DocumentStatus.AI_PROCESSING_FAILED
+
+    mock_workflow_service.create_from_business_rule.assert_not_called()
 
 
 def test_analysis_service_marks_failed_on_extraction_error(
@@ -235,6 +254,7 @@ def test_analysis_service_marks_failed_on_extraction_error(
         "Invoice extraction failed."
     )
 
+    mock_workflow_service = Mock()
     mock_update_status = Mock()
 
     monkeypatch.setattr(
@@ -247,6 +267,7 @@ def test_analysis_service_marks_failed_on_extraction_error(
     service = DocumentAnalysisService(
         database_session=mock_database_session,
         ai_service=mock_ai_service,
+        workflow_service=mock_workflow_service,
     )
 
     with pytest.raises(AIExtractionError):
@@ -259,3 +280,5 @@ def test_analysis_service_marks_failed_on_extraction_error(
 
     second_status_call = mock_update_status.call_args_list[1]
     assert second_status_call.kwargs["status"] == DocumentStatus.AI_PROCESSING_FAILED
+
+    mock_workflow_service.create_from_business_rule.assert_not_called()
