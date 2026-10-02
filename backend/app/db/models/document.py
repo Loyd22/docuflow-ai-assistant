@@ -15,6 +15,7 @@ from app.db.base import Base
 from app.db.enums import DocumentStatus, DocumentType
 
 if TYPE_CHECKING:
+    from app.db.models.document_chunk import DocumentChunk
     from app.db.models.user import User
 from typing import Any
 
@@ -131,4 +132,10 @@ class Document(Base):
     business_rule_result: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,
         nullable=True,
+    )
+
+    chunks: Mapped[list["DocumentChunk"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentChunk.chunk_index",
     )

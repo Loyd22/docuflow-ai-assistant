@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.enums import DocumentType
 from app.db.models.document import Document
+from app.db.models.document_chunk import DocumentChunk
 from app.schemas.ai_schema import (
     DocumentClassification,
     InvoiceExtraction,
@@ -516,4 +517,352 @@ def test_analyze_invoice_persists_business_rule_result(
     assert (
         document.business_rule_result["reason"]
         == "Invoice total exceeds the manager approval threshold."
+    )
+
+
+def test_index_document_success(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A processed document can be indexed for RAG retrieval."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    access_token = register_and_login(
+        client,
+        email="rag-index@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+        files={
+            "uploaded_file": (
+                "policy.txt",
+                (
+                    b"Employees receive 15 days of annual leave per year. "
+                    b"Unused annual leave may be carried forward."
+                ),
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    process_response = client.post(
+        f"/documents/{document_id}/process",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert process_response.status_code == 200
+    assert process_response.json()["status"] == "text_extracted"
+
+    monkeypatch.setattr(
+        "app.ai.embedder.DocumentEmbedder.embed_texts",
+        lambda self, texts: [[0.1] * 1536 for _ in texts],
+    )
+
+    index_response = client.post(
+        f"/documents/{document_id}/index",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert index_response.status_code == 200
+
+    response_data = index_response.json()
+
+    assert response_data["document_id"] == document_id
+    assert response_data["chunks_indexed"] >= 1
+
+    chunks = (
+        db_session.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document_id)
+        .order_by(DocumentChunk.chunk_index)
+        .all()
+    )
+
+    assert len(chunks) == response_data["chunks_indexed"]
+
+    assert all(chunk.embedding is not None for chunk in chunks)
+
+
+def test_index_document_requires_authentication(
+    client: TestClient,
+) -> None:
+    """Anonymous users cannot index documents."""
+
+    response = client.post(
+        "/documents/1/index",
+    )
+
+    assert response.status_code in (401, 403)
+
+
+def test_index_document_returns_not_found(
+    client: TestClient,
+) -> None:
+    """Indexing an unknown document should return 404."""
+
+    access_token = register_and_login(
+        client,
+        email="rag-index-not-found@example.com",
+    )
+
+    response = client.post(
+        "/documents/999999/index",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found."
+
+
+def test_index_document_rejects_different_user(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A user cannot index a document uploaded by another user."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    owner_token = register_and_login(
+        client,
+        email="rag-owner@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {owner_token}",
+        },
+        files={
+            "uploaded_file": (
+                "private-policy.txt",
+                b"Confidential company policy.",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    other_user_token = register_and_login(
+        client,
+        email="rag-other-user@example.com",
+    )
+
+    response = client.post(
+        f"/documents/{document_id}/index",
+        headers={
+            "Authorization": f"Bearer {other_user_token}",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == ("You are not allowed to index this document.")
+
+
+def test_ask_document_question_success(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An authenticated user can ask a question about an indexed document."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    access_token = register_and_login(
+        client,
+        email="rag-question@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+        files={
+            "uploaded_file": (
+                "leave-policy.txt",
+                (
+                    b"Employees receive 15 days of annual leave per year. "
+                    b"Unused leave may be carried forward."
+                ),
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    process_response = client.post(
+        f"/documents/{document_id}/process",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert process_response.status_code == 200
+
+    monkeypatch.setattr(
+        "app.ai.embedder.DocumentEmbedder.embed_texts",
+        lambda self, texts: [[0.1] * 1536 for _ in texts],
+    )
+
+    index_response = client.post(
+        f"/documents/{document_id}/index",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert index_response.status_code == 200
+
+    monkeypatch.setattr(
+        "app.ai.qa_generator.DocumentQAGenerator.generate",
+        lambda self, question, context: "Employees receive 15 days of annual leave.",
+    )
+
+    ask_response = client.post(
+        f"/documents/{document_id}/ask",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+        json={
+            "question": "How many annual leave days do employees receive?",
+        },
+    )
+
+    assert ask_response.status_code == 200
+
+    response_data = ask_response.json()
+
+    assert response_data["answer"] == ("Employees receive 15 days of annual leave.")
+
+    assert "sources" in response_data
+    assert len(response_data["sources"]) >= 1
+
+    assert "chunk_index" in response_data["sources"][0]
+    assert "content" in response_data["sources"][0]
+
+
+def test_ask_document_question_requires_authentication(
+    client: TestClient,
+) -> None:
+    """Anonymous users cannot ask questions about documents."""
+
+    response = client.post(
+        "/documents/1/ask",
+        json={
+            "question": "What is this document about?",
+        },
+    )
+
+    assert response.status_code in (401, 403)
+
+
+def test_ask_document_question_returns_not_found(
+    client: TestClient,
+) -> None:
+    """Asking about an unknown document should return 404."""
+
+    access_token = register_and_login(
+        client,
+        email="rag-question-not-found@example.com",
+    )
+
+    response = client.post(
+        "/documents/999999/ask",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+        json={
+            "question": "What is this document about?",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found."
+
+
+def test_ask_document_question_rejects_different_user(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A user cannot ask questions about another user's document."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    owner_token = register_and_login(
+        client,
+        email="rag-question-owner@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {owner_token}",
+        },
+        files={
+            "uploaded_file": (
+                "private-policy.txt",
+                b"Private company policy.",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    other_user_token = register_and_login(
+        client,
+        email="rag-question-other@example.com",
+    )
+
+    response = client.post(
+        f"/documents/{document_id}/ask",
+        headers={
+            "Authorization": f"Bearer {other_user_token}",
+        },
+        json={
+            "question": "What does this document say?",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "You are not allowed to ask questions about this document."
     )

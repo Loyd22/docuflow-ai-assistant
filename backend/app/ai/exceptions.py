@@ -16,3 +16,11 @@ class AIClassificationError(Exception):
 
 class AIExtractionError(Exception):
     """Raised when structured document extraction cannot be completed."""
+
+
+class AIEmbeddingError(Exception):
+    """Raised when text embedding cannot be completed."""
+
+
+class AIQuestionAnsweringError(Exception):
+    """Raised when document question answering cannot be completed."""

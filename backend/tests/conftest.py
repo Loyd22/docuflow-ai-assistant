@@ -2,7 +2,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
@@ -24,6 +24,9 @@ TestSessionLocal = sessionmaker(
 @pytest.fixture(scope="session", autouse=True)
 def prepare_test_database() -> Generator[None, None, None]:
     """Create the database schema used by integration tests."""
+
+    with test_engine.begin() as connection:
+        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
     Base.metadata.create_all(bind=test_engine)
 

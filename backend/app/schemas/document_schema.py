@@ -26,3 +26,30 @@ class DocumentResponse(BaseModel):
     status: DocumentStatus
     created_at: datetime
     updated_at: datetime
+
+
+class DocumentQuestionRequest(BaseModel):
+    """Question submitted about an indexed document."""
+
+    question: str
+
+
+class DocumentQuestionSource(BaseModel):
+    """Retrieved document chunk supporting a generated answer."""
+
+    chunk_index: int
+    content: str
+
+
+class DocumentQuestionResponse(BaseModel):
+    """Grounded answer with supporting document sources."""
+
+    answer: str
+    sources: list[DocumentQuestionSource]
+
+
+class DocumentIndexResponse(BaseModel):
+    """Result of indexing a document for RAG retrieval."""
+
+    document_id: int
+    chunks_indexed: int

@@ -13,8 +13,9 @@ Completed:
 * Phase 7 — AI Classification & Extraction
 * Phase 8 — Business Rules
 * Phase 9 — Workflow & Approval
-Next:
 * Phase 10 — RAG / Document Q&A
+Next:
+* Phase 11 — Dashboard & Audit Logs
 ---
 ## Technology Stack
 ### Frontend
@@ -31,6 +32,7 @@ Next:
 * PostgreSQL 16
 * Psycopg
 * PostgreSQL JSONB
+* pgvector for vector embeddings and cosine-similarity retrieval
 ### Authentication & Security
 * JWT authentication
 * PyJWT
@@ -76,6 +78,19 @@ Next:
 * Workflow ownership visibility controls for employees
 * PostgreSQL persistence for workflow and approval records
 * FastAPI workflow retrieval and decision endpoints
+### RAG / Document Q&A
+* OpenAI embeddings
+* Configurable embedding model through environment settings
+* 1536-dimensional vector embeddings
+* pgvector-backed document chunk storage
+* Cosine-distance semantic retrieval
+* Paragraph-aware text chunking with character-based fallback
+* Configurable chunk size and overlap
+* Document indexing service
+* Grounded document Q&A generation
+* Retrieved source chunks returned with generated answers
+* Controlled fallback for unsupported questions
+* Dedicated RAG evaluation suite
 ### Infrastructure & Development
 * Docker
 * Docker Compose
@@ -93,6 +108,8 @@ backend/
 │   │   ├── client.py
 │   │   ├── classifier.py
 │   │   ├── extractor.py
+│   │   ├── embedder.py
+│   │   ├── qa_generator.py
 │   │   ├── prompts.py
 │   │   └── exceptions.py
 │   │
@@ -120,11 +137,16 @@ backend/
 │   │   │   ├── document.py
 │   │   │   ├── workflow.py
 │   │   │   ├── approval.py
-│   │   │   └── audit_log.py
+│   │   │   ├── audit_log.py
+│   │   │   └── document_chunk.py
 │   │   ├── base.py
 │   │   ├── database.py
 │   │   ├── enums.py
 │   │   └── session.py
+│   │
+│   ├── rag/
+│   │   ├── __init__.py
+│   │   └── chunker.py
 │   │
 │   ├── processing/
 │   │   ├── __init__.py
@@ -139,7 +161,8 @@ backend/
 │   │   ├── user_repository.py
 │   │   ├── document_repository.py
 │   │   ├── workflow_repository.py
-│   │   └── approval_repository.py
+│   │   ├── approval_repository.py
+│   │   └── document_chunk_repository.py
 │   │
 │   ├── schemas/
 │   │   ├── ai_schema.py
@@ -154,7 +177,12 @@ backend/
 │   │   ├── document_processing_service.py
 │   │   ├── document_ai_service.py
 │   │   ├── document_analysis_service.py
-│   │   └── workflow_service.py
+│   │   ├── workflow_service.py
+│   │   ├── document_chunking_service.py
+│   │   ├── document_embedding_service.py
+│   │   ├── document_indexing_service.py
+│   │   ├── document_retrieval_service.py
+│   │   └── document_qa_service.py
 │   │
 │   ├── storage/
 │   │   ├── __init__.py
@@ -167,7 +195,9 @@ backend/
 │   ├── classification_cases.py
 │   ├── invoice_extraction_cases.py
 │   ├── run_classification_eval.py
-│   └── run_invoice_extraction_eval.py
+│   ├── run_invoice_extraction_eval.py
+│   ├── rag_cases.py
+│   └── run_rag_eval.py
 │
 ├── migrations/
 │   └── versions/
@@ -188,6 +218,15 @@ backend/
 │   ├── test_document_analysis_integration.py
 │   ├── test_workflow_service.py
 │   ├── test_workflow_api.py
+│   ├── test_text_chunker.py
+│   ├── test_document_chunking_service.py
+│   ├── test_document_embedder.py
+│   ├── test_document_embedding_service.py
+│   ├── test_document_indexing_service.py
+│   ├── test_document_retrieval_service.py
+│   ├── test_document_chunk_repository.py
+│   ├── test_document_qa_generator.py
+│   ├── test_document_qa_service.py
 │   ├── test_docx_extractor.py
 │   ├── test_extractor_factory.py
 │   ├── test_health.py
@@ -269,6 +308,34 @@ Workflow Repository / Approval Repository
 ↓
 PostgreSQL
 ```
+RAG indexing and document Q&A use dedicated retrieval layers:
+```text
+Processed Document
+↓
+Extracted Text
+↓
+Document Chunking Service
+↓
+Paragraph-Aware Text Chunker
+↓
+Document Chunks
+↓
+OpenAI Embeddings
+↓
+pgvector / PostgreSQL
+↓
+User Question
+↓
+Question Embedding
+↓
+Cosine-Similarity Search
+↓
+Top Relevant Document Chunks
+↓
+Document QA Generator
+↓
+Grounded Answer + Retrieved Sources
+```
 Security-specific functionality is kept inside the core security layer.
 ---
 ## Separation of Concerns
@@ -290,6 +357,8 @@ processing/
 → deterministic file and text extraction
 business_rules/
 → deterministic company/domain policy
+rag/
+→ text chunking and retrieval-oriented document preparation
 workflow service
 → translates business-rule decisions into workflow state and coordinates approvals
 storage/
@@ -327,6 +396,21 @@ summary
 created_at
 updated_at
 ```
+### Document Chunks
+Phase 10 introduced the document_chunks table for RAG indexing.
+Each row stores:
+```text
+id
+document_id
+chunk_index
+content
+embedding
+created_at
+```
+embedding uses PostgreSQL vector(1536) through pgvector.
+The combination of document_id and chunk_index is unique.
+Chunks belong to a document and are deleted automatically when their parent document is deleted.
+The embedding column is nullable so chunk persistence can occur before external embedding generation succeeds.
 ### Structured JSONB Data
 `extracted_data` stores structured AI extraction results.
 Example:
@@ -1082,15 +1166,15 @@ information_requested
 A pending workflow may transition as follows:
 ```text
 pending_approval
-├── approved              → approved
-├── rejected              → rejected
+├── approved              → approved
+├── rejected              → rejected
 └── information_requested → needs_information
 ```
 Approval records preserve the human decision, approver identity, optional comment, and creation time.
 A pending approval request is represented by the workflow's `pending_approval` state. An `Approval` row is created only when a human decision is actually submitted.
 ### Workflow Endpoints
 ```text
-GET  /workflows/{workflow_id}
+GET  /workflows/{workflow_id}
 POST /workflows/{workflow_id}/decision
 ```
 `GET /workflows/{workflow_id}` requires authentication.
@@ -1112,8 +1196,8 @@ Employees receive `403 Forbidden` when attempting to submit approval decisions.
 ### Approval Request Example
 ```json
 {
-  "decision": "approved",
-  "comment": "Approved for payment."
+  "decision": "approved",
+  "comment": "Approved for payment."
 }
 ```
 The client does not provide `approver_id`.
@@ -1185,6 +1269,138 @@ approval.approver_id = authenticated manager
 ```
 This verifies the real FastAPI route, authentication and role authorization, workflow service, repositories, SQLAlchemy relationships, and PostgreSQL persistence together.
 ---
+## RAG / Document Q&A
+Phase 10 introduced semantic document retrieval and grounded question answering.
+The feature is split into two major operations:
+```text
+INDEXING
+Processed document
+→ chunk text
+→ create embeddings
+→ store chunks + vectors in PostgreSQL
+QUESTION ANSWERING
+User question
+→ embed question
+→ search similar chunks
+→ build context
+→ generate grounded answer
+→ return answer + supporting chunks
+```
+### RAG Endpoints
+```text
+POST /documents/{document_id}/index
+POST /documents/{document_id}/ask
+```
+Both endpoints require authentication and enforce document ownership.
+### Document Indexing
+Indexing requires extracted document text.
+The indexing flow is:
+```text
+Document
+↓
+DocumentChunkingService
+↓
+TextChunker
+↓
+DocumentChunk rows
+↓
+DocumentEmbeddingService
+↓
+OpenAI embedding model
+↓
+1536-dimensional vectors
+↓
+pgvector persistence
+```
+Re-indexing replaces existing chunks for the document before storing a fresh index.
+### Paragraph-Aware Chunking
+The default chunking configuration is:
+```text
+chunk_size = 1000
+chunk_overlap = 200
+```
+Structured documents prefer paragraph boundaries so related information remains together.
+Plain unstructured text falls back to deterministic overlapping character chunks.
+A single paragraph larger than the configured chunk size also falls back to character-based splitting.
+### Embeddings
+Embedding configuration is controlled through environment settings:
+```env
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_EMBEDDING_DIMENSIONS=1536
+```
+Document chunks are embedded in batches and stored in PostgreSQL through pgvector.
+Questions are embedded using the same embedding configuration.
+### Semantic Retrieval
+Retrieval is scoped to one document.
+The repository:
+```text
+filters by document_id
+↓
+ignores chunks without embeddings
+↓
+orders chunks by pgvector cosine distance
+↓
+returns the top matching chunks
+```
+The current default retrieval limit is:
+```text
+top_k = 5
+```
+### Grounded Question Answering
+The Q&A generator receives only:
+```text
+question
+-
+retrieved document context
+```
+The prompt instructs the model to answer only from that context and not invent unsupported information.
+When the available context is insufficient, the expected fallback is:
+```text
+I could not find enough information in the document to answer that question.
+```
+### Question Response
+The API returns both the answer and retrieved supporting chunks.
+Example shape:
+```json
+{
+  "answer": "Employees receive 15 days of annual leave per year.",
+  "sources": [
+    {
+      "chunk_index": 0,
+      "content": "Annual Leave ..."
+    }
+  ]
+}
+```
+The returned sources provide retrieval traceability for the generated answer.
+### Phase 10 End-to-End Verification
+Phase 10 was manually verified through Swagger using a real PDF.
+The verified flow was:
+```text
+Upload PDF
+↓
+Extract text
+↓
+Index document
+↓
+Chunk text
+↓
+Create real OpenAI embeddings
+↓
+Persist vectors in pgvector
+↓
+Ask document question
+↓
+Embed question
+↓
+Retrieve relevant chunks
+↓
+Generate grounded answer
+↓
+Return answer + sources
+```
+Unsupported-question behavior was also manually verified and correctly returned the insufficient-information fallback.
+---
 ## AI Evaluations
 AI evaluations are kept separately from normal `pytest` software tests.
 ```text
@@ -1197,6 +1413,7 @@ Current evaluation commands:
 ```bash
 python -m evals.run_classification_eval
 python -m evals.run_invoice_extraction_eval
+python -m evals.run_rag_eval
 ```
 ### Classification Evaluation
 Current result:
@@ -1223,6 +1440,31 @@ missing fields
 invoice without tax
 ```
 The extractor correctly preserved missing values as `None` rather than inventing values.
+### RAG Evaluation
+The Phase 10 RAG evaluation uses a deterministic handbook-style document containing multiple unrelated sections so retrieval must rank competing chunks.
+The final Phase 10 baseline is:
+```text
+Overall:   5 / 5 (100.00%)
+Retrieval: 5 / 5 (100.00%)
+Answers:   5 / 5 (100.00%)
+```
+The evaluation covers:
+```text
+direct factual retrieval
+paraphrased questions
+multiple competing document sections
+top-ranked source validation
+answer-content validation
+equivalent answer wording such as "12" and "twelve"
+```
+An earlier baseline using raw character chunking produced:
+```text
+Overall:   4 / 5 (80.00%)
+Retrieval: 4 / 5 (80.00%)
+Answers:   5 / 5 (100.00%)
+```
+Paragraph-aware chunking improved the retrieval baseline from 80% to 100% on the current five-case evaluation set.
+These results measure only the current controlled evaluation dataset and should not be interpreted as general real-world RAG accuracy.
 ### Purpose of Evaluations
 Evaluations provide a measurable baseline for future changes to:
 ```text
@@ -1309,6 +1551,8 @@ JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-5.6-luna
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_EMBEDDING_DIMENSIONS=1536
 TEST_DATABASE_URL=postgresql+psycopg://user:password@localhost:5434/docuflow_test
 ```
 Never commit real secrets from `.env`.
@@ -1354,6 +1598,21 @@ alembic current
 should show:
 ```text
 5aaeace5f9f9 (head)
+```
+### Phase 10 Migration
+Phase 10 introduced:
+```text
+a8be8ba6519c
+```
+Description:
+```text
+add document chunks for rag
+```
+The migration enables the PostgreSQL vector extension when needed and creates the document_chunks table with a vector(1536) embedding column.
+The development and test databases both require pgvector support.
+The Docker PostgreSQL image used by the project is:
+```text
+pgvector/pgvector:pg16
 ```
 ---
 ## Run the Backend
@@ -1533,6 +1792,25 @@ The document-analysis integration suite verifies real workflow persistence for:
 * invoice with missing total → `needs_review`
 * normal invoice → `completed`
 * unsupported document rule type → `needs_review`
+### RAG Unit and Integration Tests
+Phase 10 testing includes:
+* paragraph-aware text chunking
+* overlapping character fallback
+* chunk validation rules
+* document chunk persistence
+* safe re-chunking behavior
+* OpenAI embedding wrapper behavior
+* embedding persistence
+* document indexing orchestration
+* pgvector cosine-similarity ranking
+* cross-document retrieval isolation
+* document retrieval service behavior
+* grounded Q&A generation
+* Q&A fallback when no chunks are available
+* answer source serialization
+* authenticated document indexing API behavior
+* authenticated document Q&A API behavior
+* ownership authorization for indexing and Q&A
 ### Test Database
 A separate PostgreSQL test database is used for integration testing:
 ```text
@@ -1585,6 +1863,16 @@ The test suite currently covers:
 * approval-record persistence
 * approval/rejection/information-request state transitions
 * invalid workflow transition handling
+* document chunk persistence
+* paragraph-aware chunking
+* embedding generation and persistence
+* pgvector similarity retrieval
+* retrieval isolation by document
+* RAG indexing orchestration
+* grounded Q&A generation
+* RAG source responses
+* document indexing API behavior
+* document Q&A API behavior
 ---
 ## Code Quality
 Ruff is used for Python linting and formatting.
@@ -1640,19 +1928,20 @@ RAG / Document Q&A
 ↓
 Dashboard & Audit Logs
 ```
-The first five major stages are now implemented:
+The first six major stages are now implemented:
 ```text
 Document Upload                  ✅
 Text Extraction                  ✅
 AI Classification & Extraction  ✅
 Business Rule Validation         ✅
 Workflow Routing & Approval      ✅
+RAG / Document Q&A                 ✅
 ```
 The next stage is:
 ```text
-RAG / Document Q&A
+Dashboard & Audit Logs
 ```
-which will be introduced in Phase 10.
+which will be introduced in Phase 11.
 ---
 ## Supported Document Types
 DocuFlow is designed to support:
@@ -1675,6 +1964,7 @@ Phase 7 classifies that text using the AI layer.
 Structured extraction is currently implemented for invoices.
 Phase 8 contains detailed deterministic rules for invoices.
 Phase 9 converts the resulting business action into a persistent workflow state and supports manager/admin approval decisions for workflows that require approval.
+Phase 10 indexes extracted document text into pgvector and supports grounded semantic document Q&A with returned source chunks.
 Other classified document types currently fall back to manual review until their structured extraction and document-specific business rules are implemented.
 Additional document-specific extraction schemas and business rules can be added incrementally as requirements grow.
 ---
@@ -1689,8 +1979,8 @@ Phase 6  — Document Processing                 ✅ Completed
 Phase 7  — AI Classification & Extraction      ✅ Completed
 Phase 8  — Business Rules                      ✅ Completed
 Phase 9  — Workflow & Approval                 ✅ Completed
-Phase 10 — RAG / Document Q&A                 ← Next
-Phase 11 — Dashboard & Audit Logs
+Phase 10 — RAG / Document Q&A                 ✅ Completed
+Phase 11 — Dashboard & Audit Logs               ← Next
 Phase 12 — Frontend
 Phase 13 — Testing
 Phase 14 — Deployment / DevOps
@@ -2042,8 +2332,8 @@ workflow.current_status = pending_approval
 An authenticated manager then submitted an approval decision:
 ```json
 {
-  "decision": "approved",
-  "comment": "Approved during Phase 9 verification."
+  "decision": "approved",
+  "comment": "Approved during Phase 9 verification."
 }
 ```
 The application returned and persisted:
@@ -2053,7 +2343,74 @@ approval.decision = approved
 approval.approver_id = authenticated manager
 ```
 This confirms that Phase 7 AI analysis, Phase 8 deterministic decisions, Phase 9 workflow creation, role authorization, human approval, repositories, SQLAlchemy, and PostgreSQL operate together as one application flow.
+---
+## Phase 10 Completion Summary
+Phase 10 introduced DocuFlow's RAG-based semantic document retrieval and grounded question-answering layer.
+Implemented:
+```text
+pgvector-enabled PostgreSQL
+document_chunks database model
+Alembic migration for document chunks and vector support
+Document-to-chunk relationship
+Paragraph-aware TextChunker
+Character-based chunking fallback
+Chunk persistence repository
+OpenAI embedding wrapper
+DocumentEmbeddingService
+DocumentIndexingService
+Cosine-similarity pgvector retrieval
+DocumentRetrievalService
+Grounded DocumentQAGenerator
+DocumentQAService
+Document indexing endpoint
+Document question-answering endpoint
+Answer source chunks
+Ownership authorization for RAG endpoints
+Controlled unsupported-question fallback
+RAG unit and integration tests
+Real PDF Swagger verification
+Dedicated RAG evaluation suite
+```
+### Current Phase 10 Flow
+```text
+Processed Document
+↓
+POST /documents/{document_id}/index
+↓
+TextChunker
+↓
+DocumentChunk rows
+↓
+OpenAI embeddings
+↓
+pgvector
+↓
+POST /documents/{document_id}/ask
+↓
+Embed question
+↓
+Cosine-similarity retrieval
+↓
+Top relevant chunks
+↓
+DocumentQAGenerator
+↓
+Grounded answer + sources
+```
+### RAG Evaluation Baseline
+The final controlled Phase 10 evaluation produced:
+```text
+Overall:   5 / 5 (100.00%)
+Retrieval: 5 / 5 (100.00%)
+Answers:   5 / 5 (100.00%)
+```
+The retrieval baseline improved from 80% to 100% after replacing raw character-only chunking with paragraph-aware chunking while retaining character fallback behavior.
+The full regression suite also passed:
+```text
+131 passed
+```
+Manual Swagger verification confirmed successful real-PDF indexing, semantic retrieval, grounded question answering, source return, and unsupported-question handling.
 DocuFlow is now ready to move into:
 ```text
-Phase 10 — RAG / Document Q&A
+Phase 11 — Dashboard & Audit Logs
 ```

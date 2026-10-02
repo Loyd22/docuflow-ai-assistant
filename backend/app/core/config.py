@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     test_database_url: str
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.6-luna"
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dimensions: int = 1536
 
     database_url: str
 
