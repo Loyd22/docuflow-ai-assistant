@@ -2,7 +2,7 @@
 Business logic for document uploads.
 
 The service layer coordinates file validation, file storage,
-and database persistence.
+database persistence, and document-upload audit logging.
 """
 
 from pathlib import Path
@@ -11,8 +11,10 @@ from fastapi import UploadFile
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.db.enums import AuditAction, AuditEntityType
 from app.db.models.document import Document
 from app.repositories.document_repository import create_document
+from app.services.audit_log_service import AuditLogService
 from app.storage.file_storage import (
     generate_stored_file_name,
     save_uploaded_file,
@@ -58,7 +60,7 @@ def upload_document(
     uploaded_file: UploadFile,
     uploaded_by: int,
 ) -> Document:
-    """Validate, store, and persist an uploaded document."""
+    """Validate, store, persist, and audit an uploaded document."""
 
     original_file_name = uploaded_file.filename
 
@@ -87,8 +89,6 @@ def upload_document(
             file_size=file_size,
         )
 
-        return document
-
     except (ValueError, SQLAlchemyError):
         if saved_file_path.exists():
             saved_file_path.unlink()
@@ -96,3 +96,21 @@ def upload_document(
         database_session.rollback()
 
         raise
+
+    audit_log_service = AuditLogService(
+        database_session=database_session,
+    )
+
+    audit_log_service.record_event(
+        user_id=uploaded_by,
+        action=AuditAction.DOCUMENT_UPLOADED,
+        entity_type=AuditEntityType.DOCUMENT,
+        entity_id=document.id,
+        event_metadata={
+            "original_file_name": document.original_file_name,
+            "mime_type": document.mime_type,
+            "file_size": document.file_size,
+        },
+    )
+
+    return document

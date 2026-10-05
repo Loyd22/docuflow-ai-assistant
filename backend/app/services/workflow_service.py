@@ -7,7 +7,12 @@ persistent workflow state and coordinates human approval decisions.
 
 from sqlalchemy.orm import Session
 
-from app.db.enums import ApprovalDecision, WorkflowStatus
+from app.db.enums import (
+    ApprovalDecision,
+    AuditAction,
+    AuditEntityType,
+    WorkflowStatus,
+)
 from app.db.models.approval import Approval
 from app.db.models.document import Document
 from app.db.models.workflow import Workflow
@@ -21,6 +26,7 @@ from app.schemas.business_rule_schema import (
     BusinessAction,
     BusinessRuleResult,
 )
+from app.services.audit_log_service import AuditLogService
 
 
 class WorkflowAlreadyExistsError(Exception):
@@ -39,6 +45,9 @@ class WorkflowService:
         database_session: Session,
     ) -> None:
         self.database_session = database_session
+        self.audit_log_service = AuditLogService(
+            database_session=database_session,
+        )
 
     def create_from_business_rule(
         self,
@@ -63,12 +72,26 @@ class WorkflowService:
             business_rule_result=business_rule_result,
         )
 
-        return create_workflow(
+        workflow = create_workflow(
             database_session=self.database_session,
             document_id=document.id,
             current_status=workflow_status,
             recommended_action=business_rule_result.next_action.value,
         )
+
+        self.audit_log_service.record_event(
+            user_id=None,
+            action=AuditAction.WORKFLOW_CREATED,
+            entity_type=AuditEntityType.WORKFLOW,
+            entity_id=workflow.id,
+            event_metadata={
+                "document_id": document.id,
+                "initial_status": workflow.current_status.value,
+                "recommended_action": business_rule_result.next_action.value,
+            },
+        )
+
+        return workflow
 
     def record_approval_decision(
         self,
@@ -101,6 +124,22 @@ class WorkflowService:
             database_session=self.database_session,
             workflow=workflow,
             status=next_status,
+        )
+
+        audit_action = self._resolve_decision_audit_action(
+            decision=decision,
+        )
+
+        self.audit_log_service.record_event(
+            user_id=approver_id,
+            action=audit_action,
+            entity_type=AuditEntityType.WORKFLOW,
+            entity_id=workflow.id,
+            event_metadata={
+                "approval_id": approval.id,
+                "previous_status": WorkflowStatus.PENDING_APPROVAL.value,
+                "new_status": updated_workflow.current_status.value,
+            },
         )
 
         return updated_workflow, approval
@@ -142,5 +181,24 @@ class WorkflowService:
 
         if decision == ApprovalDecision.INFORMATION_REQUESTED:
             return WorkflowStatus.NEEDS_INFORMATION
+
+        raise ValueError(f"Unsupported approval decision: {decision}")
+
+    @staticmethod
+    def _resolve_decision_audit_action(
+        decision: ApprovalDecision,
+    ) -> AuditAction:
+        """
+        Map a human approval decision to its audit action.
+        """
+
+        if decision == ApprovalDecision.APPROVED:
+            return AuditAction.WORKFLOW_APPROVED
+
+        if decision == ApprovalDecision.REJECTED:
+            return AuditAction.WORKFLOW_REJECTED
+
+        if decision == ApprovalDecision.INFORMATION_REQUESTED:
+            return AuditAction.WORKFLOW_INFORMATION_REQUESTED
 
         raise ValueError(f"Unsupported approval decision: {decision}")

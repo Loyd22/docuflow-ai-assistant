@@ -7,6 +7,7 @@ These tests verify that WorkflowService correctly:
 - records approval decisions
 - updates workflow status after approval decisions
 - rejects decisions for workflows that are not pending approval
+- records important workflow actions in the audit log
 
 Repository operations are mocked so these tests remain fast
 and deterministic.
@@ -18,6 +19,8 @@ import pytest
 
 from app.db.enums import (
     ApprovalDecision,
+    AuditAction,
+    AuditEntityType,
     UserRole,
     WorkflowStatus,
 )
@@ -51,6 +54,7 @@ def test_create_manager_review_workflow(
     mock_get_workflow = Mock(return_value=None)
 
     created_workflow = Mock()
+    created_workflow.id = 20
     created_workflow.current_status = WorkflowStatus.PENDING_APPROVAL
 
     mock_create_workflow = Mock(return_value=created_workflow)
@@ -71,6 +75,9 @@ def test_create_manager_review_workflow(
         database_session=mock_database_session,
     )
 
+    mock_record_event = Mock()
+    service.audit_log_service.record_event = mock_record_event
+
     workflow = service.create_from_business_rule(
         document=document,
         business_rule_result=business_rule_result,
@@ -83,6 +90,18 @@ def test_create_manager_review_workflow(
         document_id=10,
         current_status=WorkflowStatus.PENDING_APPROVAL,
         recommended_action="manager_review",
+    )
+
+    mock_record_event.assert_called_once_with(
+        user_id=None,
+        action=AuditAction.WORKFLOW_CREATED,
+        entity_type=AuditEntityType.WORKFLOW,
+        entity_id=20,
+        event_metadata={
+            "document_id": 10,
+            "initial_status": "pending_approval",
+            "recommended_action": "manager_review",
+        },
     )
 
 
@@ -108,6 +127,8 @@ def test_create_manual_review_workflow(
     )
 
     created_workflow = Mock()
+    created_workflow.id = 21
+    created_workflow.current_status = WorkflowStatus.NEEDS_REVIEW
 
     mock_create_workflow = Mock(return_value=created_workflow)
 
@@ -119,6 +140,8 @@ def test_create_manual_review_workflow(
     service = WorkflowService(
         database_session=Mock(),
     )
+
+    service.audit_log_service.record_event = Mock()
 
     workflow = service.create_from_business_rule(
         document=document,
@@ -155,6 +178,8 @@ def test_create_continue_processing_workflow(
     )
 
     created_workflow = Mock()
+    created_workflow.id = 22
+    created_workflow.current_status = WorkflowStatus.COMPLETED
 
     mock_create_workflow = Mock(return_value=created_workflow)
 
@@ -166,6 +191,8 @@ def test_create_continue_processing_workflow(
     service = WorkflowService(
         database_session=Mock(),
     )
+
+    service.audit_log_service.record_event = Mock()
 
     service.create_from_business_rule(
         document=document,
@@ -212,6 +239,9 @@ def test_create_workflow_rejects_duplicate(
         database_session=Mock(),
     )
 
+    mock_record_event = Mock()
+    service.audit_log_service.record_event = mock_record_event
+
     with pytest.raises(
         WorkflowAlreadyExistsError,
         match="A workflow already exists for this document",
@@ -222,6 +252,7 @@ def test_create_workflow_rejects_duplicate(
         )
 
     mock_create_workflow.assert_not_called()
+    mock_record_event.assert_not_called()
 
 
 def test_record_approved_decision(
@@ -234,6 +265,7 @@ def test_record_approved_decision(
     workflow.current_status = WorkflowStatus.PENDING_APPROVAL
 
     created_approval = Mock()
+    created_approval.id = 30
 
     mock_create_approval = Mock(return_value=created_approval)
 
@@ -257,6 +289,9 @@ def test_record_approved_decision(
     service = WorkflowService(
         database_session=mock_database_session,
     )
+
+    mock_record_event = Mock()
+    service.audit_log_service.record_event = mock_record_event
 
     result_workflow, approval = service.record_approval_decision(
         workflow=workflow,
@@ -282,17 +317,31 @@ def test_record_approved_decision(
         status=WorkflowStatus.APPROVED,
     )
 
+    mock_record_event.assert_called_once_with(
+        user_id=7,
+        action=AuditAction.WORKFLOW_APPROVED,
+        entity_type=AuditEntityType.WORKFLOW,
+        entity_id=5,
+        event_metadata={
+            "approval_id": 30,
+            "previous_status": "pending_approval",
+            "new_status": "approved",
+        },
+    )
+
 
 @pytest.mark.parametrize(
-    ("decision", "expected_status"),
+    ("decision", "expected_status", "expected_audit_action"),
     [
         (
             ApprovalDecision.REJECTED,
             WorkflowStatus.REJECTED,
+            AuditAction.WORKFLOW_REJECTED,
         ),
         (
             ApprovalDecision.INFORMATION_REQUESTED,
             WorkflowStatus.NEEDS_INFORMATION,
+            AuditAction.WORKFLOW_INFORMATION_REQUESTED,
         ),
     ],
 )
@@ -300,19 +349,26 @@ def test_record_decision_updates_expected_status(
     monkeypatch: pytest.MonkeyPatch,
     decision: ApprovalDecision,
     expected_status: WorkflowStatus,
+    expected_audit_action: AuditAction,
 ) -> None:
-    """Approval decisions should map to the expected workflow status."""
+    """Approval decisions should map to workflow status and audit action."""
 
     workflow = Mock()
     workflow.id = 6
     workflow.current_status = WorkflowStatus.PENDING_APPROVAL
 
+    created_approval = Mock()
+    created_approval.id = 31
+
     monkeypatch.setattr(
         "app.services.workflow_service.create_approval",
-        Mock(return_value=Mock()),
+        Mock(return_value=created_approval),
     )
 
-    mock_update_status = Mock(return_value=workflow)
+    updated_workflow = Mock()
+    updated_workflow.current_status = expected_status
+
+    mock_update_status = Mock(return_value=updated_workflow)
 
     monkeypatch.setattr(
         "app.services.workflow_service.update_workflow_status",
@@ -323,6 +379,9 @@ def test_record_decision_updates_expected_status(
         database_session=Mock(),
     )
 
+    mock_record_event = Mock()
+    service.audit_log_service.record_event = mock_record_event
+
     service.record_approval_decision(
         workflow=workflow,
         approver_id=8,
@@ -330,6 +389,18 @@ def test_record_decision_updates_expected_status(
     )
 
     assert mock_update_status.call_args.kwargs["status"] == expected_status
+
+    mock_record_event.assert_called_once_with(
+        user_id=8,
+        action=expected_audit_action,
+        entity_type=AuditEntityType.WORKFLOW,
+        entity_id=6,
+        event_metadata={
+            "approval_id": 31,
+            "previous_status": "pending_approval",
+            "new_status": expected_status.value,
+        },
+    )
 
 
 def test_record_decision_rejects_invalid_workflow_state(
@@ -358,6 +429,9 @@ def test_record_decision_rejects_invalid_workflow_state(
         database_session=Mock(),
     )
 
+    mock_record_event = Mock()
+    service.audit_log_service.record_event = mock_record_event
+
     with pytest.raises(
         InvalidWorkflowStateError,
         match="Workflow is not waiting for approval",
@@ -370,3 +444,4 @@ def test_record_decision_rejects_invalid_workflow_state(
 
     mock_create_approval.assert_not_called()
     mock_update_status.assert_not_called()
+    mock_record_event.assert_not_called()

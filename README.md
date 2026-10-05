@@ -14,8 +14,9 @@ Completed:
 * Phase 8 — Business Rules
 * Phase 9 — Workflow & Approval
 * Phase 10 — RAG / Document Q&A
-Next:
 * Phase 11 — Dashboard & Audit Logs
+Next:
+* Phase 12 — Frontend
 ---
 ## Technology Stack
 ### Frontend
@@ -91,6 +92,16 @@ Next:
 * Retrieved source chunks returned with generated answers
 * Controlled fallback for unsupported questions
 * Dedicated RAG evaluation suite
+### Dashboard & Audit Logs
+* Persistent audit-log records for important user and system actions
+* Controlled audit actions and entity types through enums
+* Audit events for upload, text extraction, AI classification, structured extraction, business rules, workflow creation, and human decisions
+* Manager/admin audit-history API access
+* Dashboard aggregation queries for document and workflow totals
+* Document counts grouped by processing status and document type
+* Workflow counts grouped by workflow status
+* Manager/admin dashboard authorization
+* Dedicated Phase 11 API integration tests
 ### Infrastructure & Development
 * Docker
 * Docker Compose
@@ -115,7 +126,9 @@ backend/
 │   │
 │   ├── api/
 │   │   ├── routes/
+│   │   │   ├── audit_log_routes.py
 │   │   │   ├── auth_routes.py
+│   │   │   ├── dashboard_routes.py
 │   │   │   ├── document_routes.py
 │   │   │   ├── health_routes.py
 │   │   │   └── workflow_routes.py
@@ -162,17 +175,23 @@ backend/
 │   │   ├── document_repository.py
 │   │   ├── workflow_repository.py
 │   │   ├── approval_repository.py
+│   │   ├── audit_log_repository.py
+│   │   ├── dashboard_repository.py
 │   │   └── document_chunk_repository.py
 │   │
 │   ├── schemas/
 │   │   ├── ai_schema.py
+│   │   ├── audit_log_schema.py
 │   │   ├── auth_schema.py
 │   │   ├── business_rule_schema.py
+│   │   ├── dashboard_schema.py
 │   │   ├── document_schema.py
 │   │   └── workflow_schema.py
 │   │
 │   ├── services/
 │   │   ├── auth_service.py
+│   │   ├── audit_log_service.py
+│   │   ├── dashboard_service.py
 │   │   ├── document_service.py
 │   │   ├── document_processing_service.py
 │   │   ├── document_ai_service.py
@@ -204,8 +223,10 @@ backend/
 │
 ├── tests/
 │   ├── conftest.py
+│   ├── test_audit_log_api.py
 │   ├── test_auth_api.py
 │   ├── test_auth_service.py
+│   ├── test_dashboard_api.py
 │   ├── test_business_rule_engine.py
 │   ├── test_document_api.py
 │   ├── test_document_processing_service.py
@@ -1363,13 +1384,13 @@ The API returns both the answer and retrieved supporting chunks.
 Example shape:
 ```json
 {
-  "answer": "Employees receive 15 days of annual leave per year.",
-  "sources": [
-    {
-      "chunk_index": 0,
-      "content": "Annual Leave ..."
-    }
-  ]
+  "answer": "Employees receive 15 days of annual leave per year.",
+  "sources": [
+    {
+      "chunk_index": 0,
+      "content": "Annual Leave ..."
+    }
+  ]
 }
 ```
 The returned sources provide retrieval traceability for the generated answer.
@@ -1400,6 +1421,116 @@ Generate grounded answer
 Return answer + sources
 ```
 Unsupported-question behavior was also manually verified and correctly returned the insufficient-information fallback.
+---
+## Dashboard & Audit Logs
+Phase 11 introduced system visibility through persistent audit history and dashboard summary metrics.
+### Audit Log Events
+DocuFlow records important business events using controlled AuditAction and AuditEntityType values.
+Current audited events include:
+
+USER_REGISTERED
+USER_LOGGED_IN
+
+DOCUMENT_UPLOADED
+DOCUMENT_TEXT_EXTRACTED
+DOCUMENT_CLASSIFIED
+DOCUMENT_FIELDS_EXTRACTED
+
+RULE_CHECK_COMPLETED
+
+WORKFLOW_CREATED
+WORKFLOW_APPROVED
+WORKFLOW_REJECTED
+WORKFLOW_INFORMATION_REQUESTED
+
+Audit records store:
+
+user_id
+action
+entity_type
+entity_id
+event_metadata
+created_at
+
+System-generated events may use user_id = null.
+Audit metadata stores useful context without copying entire business records or extracted document contents.
+### Audit History Endpoint
+
+GET /audit-logs/{entity_type}/{entity_id}
+
+The endpoint is restricted to:
+
+manager
+admin
+
+Employees receive 403 Forbidden.
+Audit history is returned in chronological order.
+### Dashboard Summary Endpoint
+
+GET /dashboard/summary
+
+The dashboard is restricted to:
+
+manager
+admin
+
+The current summary includes:
+
+total_documents
+documents_by_status
+documents_by_type
+total_workflows
+workflows_by_status
+
+Missing categories are normalized to 0 so the frontend receives a predictable response shape.
+### Dashboard Flow
+
+PostgreSQL
+
+↓
+
+Dashboard Repository
+
+↓
+
+COUNT / GROUP BY queries
+
+↓
+
+Dashboard Service
+
+↓
+
+DashboardSummaryResponse
+
+↓
+
+GET /dashboard/summary
+
+### Phase 11 Audit Flow
+
+Important user or system action
+
+↓
+
+Application Service
+
+↓
+
+AuditLogService
+
+↓
+
+AuditLog Repository
+
+↓
+
+audit_logs table
+
+↓
+
+Authorized audit-history API
+
 ---
 ## AI Evaluations
 AI evaluations are kept separately from normal `pytest` software tests.
@@ -1444,9 +1575,9 @@ The extractor correctly preserved missing values as `None` rather than inventing
 The Phase 10 RAG evaluation uses a deterministic handbook-style document containing multiple unrelated sections so retrieval must rank competing chunks.
 The final Phase 10 baseline is:
 ```text
-Overall:   5 / 5 (100.00%)
+Overall:   5 / 5 (100.00%)
 Retrieval: 5 / 5 (100.00%)
-Answers:   5 / 5 (100.00%)
+Answers:   5 / 5 (100.00%)
 ```
 The evaluation covers:
 ```text
@@ -1459,9 +1590,9 @@ equivalent answer wording such as "12" and "twelve"
 ```
 An earlier baseline using raw character chunking produced:
 ```text
-Overall:   4 / 5 (80.00%)
+Overall:   4 / 5 (80.00%)
 Retrieval: 4 / 5 (80.00%)
-Answers:   5 / 5 (100.00%)
+Answers:   5 / 5 (100.00%)
 ```
 Paragraph-aware chunking improved the retrieval baseline from 80% to 100% on the current five-case evaluation set.
 These results measure only the current controlled evaluation dataset and should not be interpreted as general real-world RAG accuracy.
@@ -1811,6 +1942,30 @@ Phase 10 testing includes:
 * authenticated document indexing API behavior
 * authenticated document Q&A API behavior
 * ownership authorization for indexing and Q&A
+### Audit Log Tests
+Phase 11 audit testing includes:
+* manager can retrieve entity audit history
+* admin can retrieve entity audit history
+* employee audit-history access is rejected
+* audit history is returned chronologically
+* entities without audit history return an empty list
+* workflow creation records an audit event
+* approval, rejection, and information requests record the correct audit action
+* document upload records DOCUMENT_UPLOADED
+* successful text extraction records DOCUMENT_TEXT_EXTRACTED
+* successful AI analysis records classification, extraction, and business-rule audit events
+* failed operations do not create misleading success audit events
+### Dashboard API Integration Tests
+Phase 11 dashboard testing includes:
+* manager dashboard access
+* admin dashboard access
+* employee dashboard access rejection
+* total document counts
+* document counts grouped by status
+* document counts grouped by type
+* total workflow counts
+* workflow counts grouped by status
+* zero values for missing categories
 ### Test Database
 A separate PostgreSQL test database is used for integration testing:
 ```text
@@ -1873,6 +2028,12 @@ The test suite currently covers:
 * RAG source responses
 * document indexing API behavior
 * document Q&A API behavior
+* audit-log persistence and retrieval
+* audit-log role authorization
+* document/workflow audit events
+* dashboard aggregation queries
+* dashboard role authorization
+* dashboard API response counts
 ---
 ## Code Quality
 Ruff is used for Python linting and formatting.
@@ -1928,20 +2089,21 @@ RAG / Document Q&A
 ↓
 Dashboard & Audit Logs
 ```
-The first six major stages are now implemented:
+The backend processing and visibility stages are now implemented:
 ```text
 Document Upload                  ✅
 Text Extraction                  ✅
 AI Classification & Extraction  ✅
 Business Rule Validation         ✅
 Workflow Routing & Approval      ✅
-RAG / Document Q&A                 ✅
+RAG / Document Q&A               ✅
+Dashboard & Audit Logs           ✅
 ```
 The next stage is:
 ```text
-Dashboard & Audit Logs
+Frontend
 ```
-which will be introduced in Phase 11.
+which will be introduced in Phase 12.
 ---
 ## Supported Document Types
 DocuFlow is designed to support:
@@ -1965,6 +2127,7 @@ Structured extraction is currently implemented for invoices.
 Phase 8 contains detailed deterministic rules for invoices.
 Phase 9 converts the resulting business action into a persistent workflow state and supports manager/admin approval decisions for workflows that require approval.
 Phase 10 indexes extracted document text into pgvector and supports grounded semantic document Q&A with returned source chunks.
+Phase 11 adds manager/admin dashboard summaries and persistent audit history for important document and workflow actions.
 Other classified document types currently fall back to manual review until their structured extraction and document-specific business rules are implemented.
 Additional document-specific extraction schemas and business rules can be added incrementally as requirements grow.
 ---
@@ -1980,8 +2143,8 @@ Phase 7  — AI Classification & Extraction      ✅ Completed
 Phase 8  — Business Rules                      ✅ Completed
 Phase 9  — Workflow & Approval                 ✅ Completed
 Phase 10 — RAG / Document Q&A                 ✅ Completed
-Phase 11 — Dashboard & Audit Logs               ← Next
-Phase 12 — Frontend
+Phase 11 — Dashboard & Audit Logs              ✅ Completed
+Phase 12 — Frontend                             ← Next
 Phase 13 — Testing
 Phase 14 — Deployment / DevOps
 ```
@@ -2400,9 +2563,9 @@ Grounded answer + sources
 ### RAG Evaluation Baseline
 The final controlled Phase 10 evaluation produced:
 ```text
-Overall:   5 / 5 (100.00%)
+Overall:   5 / 5 (100.00%)
 Retrieval: 5 / 5 (100.00%)
-Answers:   5 / 5 (100.00%)
+Answers:   5 / 5 (100.00%)
 ```
 The retrieval baseline improved from 80% to 100% after replacing raw character-only chunking with paragraph-aware chunking while retaining character fallback behavior.
 The full regression suite also passed:
@@ -2414,3 +2577,204 @@ DocuFlow is now ready to move into:
 ```text
 Phase 11 — Dashboard & Audit Logs
 ```
+---
+## Phase 11 Completion Summary
+Phase 11 introduced DocuFlow's dashboard summary and persistent audit-history layer.
+The objective was to make important system activity both visible and traceable without mixing reporting or audit behavior into API routes or repositories that serve other responsibilities.
+Implemented:
+
+AuditLog repository
+
+AuditLog service
+
+AuditLog response schema
+
+Audit-history API route
+
+Manager/admin audit-history authorization
+
+DOCUMENT_UPLOADED audit event
+
+DOCUMENT_TEXT_EXTRACTED audit event
+
+DOCUMENT_CLASSIFIED audit event
+
+DOCUMENT_FIELDS_EXTRACTED audit event
+
+RULE_CHECK_COMPLETED audit event
+
+WORKFLOW_CREATED audit event
+
+WORKFLOW_APPROVED audit event
+
+WORKFLOW_REJECTED audit event
+
+WORKFLOW_INFORMATION_REQUESTED audit event
+
+Dashboard repository
+
+Dashboard aggregation queries
+
+Dashboard service
+
+Dashboard response schemas
+
+Dashboard summary API route
+
+Manager/admin dashboard authorization
+
+Document totals
+
+Document counts by status
+
+Document counts by type
+
+Workflow totals
+
+Workflow counts by status
+
+Audit-log API integration tests
+
+Dashboard API integration tests
+
+Full regression verification
+
+Ruff lint and format verification
+
+### Current Audit Flow
+
+Document / Workflow Action
+
+↓
+
+Application Service
+
+↓
+
+AuditLogService
+
+↓
+
+AuditLog Repository
+
+↓
+
+PostgreSQL audit_logs
+
+↓
+
+GET /audit-logs/{entity_type}/{entity_id}
+
+↓
+
+Manager / Admin
+
+Audit records answer:
+
+Who performed the action?
+
+What happened?
+
+What entity was affected?
+
+Which entity record was affected?
+
+What useful extra context exists?
+
+When did it happen?
+
+System-generated actions use a nullable user identity when no human directly performed the event.
+### Current Dashboard Flow
+
+Documents + Workflows
+
+↓
+
+PostgreSQL aggregation
+
+↓
+
+Dashboard Repository
+
+↓
+
+Dashboard Service
+
+↓
+
+DashboardSummaryResponse
+
+↓
+
+GET /dashboard/summary
+
+↓
+
+Manager / Admin
+
+The current dashboard response reports:
+
+total_documents
+
+documents_by_status
+
+documents_by_type
+
+total_workflows
+
+workflows_by_status
+
+Missing statuses and document types are represented as zero values so Phase 12 can render the dashboard without special handling for missing keys.
+### Phase 11 Authorization
+
+employee
+
+→ dashboard forbidden
+→ audit-history API forbidden
+
+manager
+
+→ dashboard permitted
+→ audit-history API permitted
+
+admin
+
+→ dashboard permitted
+→ audit-history API permitted
+
+### Phase 11 Verification
+Phase 11 was verified with focused API and service tests plus the full regression suite.
+Verification covered:
+
+audit event creation
+
+audit event retrieval
+
+chronological audit history
+
+role authorization
+
+document audit integration
+
+AI-analysis audit integration
+
+workflow-decision audit integration
+
+dashboard document counts
+
+dashboard workflow counts
+
+zero-value normalization
+
+FastAPI route registration
+
+full pytest regression
+
+Ruff linting
+
+Ruff formatting
+
+The exact final test count should be recorded from the latest local pytest -v output when committing the completed phase.
+DocuFlow is now ready to move into:
+
+Phase 12 — Frontend

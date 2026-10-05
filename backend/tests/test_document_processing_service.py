@@ -15,7 +15,12 @@ from app.services.document_processing_service import process_document
 class FakeDocument:
     """Minimal document object required by the processing service."""
 
-    def __init__(self, file_path: str) -> None:
+    def __init__(
+        self,
+        file_path: str,
+        document_id: int = 1,
+    ) -> None:
+        self.id = document_id
         self.file_path = file_path
         self.extracted_text = None
         self.status = DocumentStatus.UPLOADED

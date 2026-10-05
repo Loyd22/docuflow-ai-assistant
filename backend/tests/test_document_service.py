@@ -6,6 +6,7 @@ import pytest
 from fastapi import UploadFile
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.db.enums import AuditAction, AuditEntityType
 from app.services.document_service import (
     MAX_FILE_SIZE_BYTES,
     upload_document,
@@ -38,6 +39,12 @@ def test_upload_document_success() -> None:
     fake_saved_path = Path("uploads/test-file.pdf")
 
     fake_document = MagicMock()
+    fake_document.id = 25
+    fake_document.original_file_name = "invoice.pdf"
+    fake_document.mime_type = "application/pdf"
+    fake_document.file_size = 21
+
+    mock_audit_log_service = MagicMock()
 
     with (
         patch(
@@ -56,6 +63,10 @@ def test_upload_document_success() -> None:
             "app.services.document_service.create_document",
             return_value=fake_document,
         ) as create_document_mock,
+        patch(
+            "app.services.document_service.AuditLogService",
+            return_value=mock_audit_log_service,
+        ) as audit_log_service_mock,
     ):
         result = upload_document(
             database_session,
@@ -75,6 +86,22 @@ def test_upload_document_success() -> None:
         file_size=21,
     )
 
+    audit_log_service_mock.assert_called_once_with(
+        database_session=database_session,
+    )
+
+    mock_audit_log_service.record_event.assert_called_once_with(
+        user_id=1,
+        action=AuditAction.DOCUMENT_UPLOADED,
+        entity_type=AuditEntityType.DOCUMENT,
+        entity_id=25,
+        event_metadata={
+            "original_file_name": "invoice.pdf",
+            "mime_type": "application/pdf",
+            "file_size": 21,
+        },
+    )
+
 
 def test_upload_document_rejects_unsupported_extension() -> None:
     database_session = MagicMock()
@@ -84,15 +111,22 @@ def test_upload_document_rejects_unsupported_extension() -> None:
         content=b"dangerous content",
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Unsupported file type",
+    with (
+        patch(
+            "app.services.document_service.AuditLogService",
+        ) as audit_log_service_mock,
+        pytest.raises(
+            ValueError,
+            match="Unsupported file type",
+        ),
     ):
         upload_document(
             database_session,
             uploaded_file=uploaded_file,
             uploaded_by=1,
         )
+
+    audit_log_service_mock.assert_not_called()
 
 
 def test_upload_document_rejects_empty_file(tmp_path: Path) -> None:
@@ -111,6 +145,9 @@ def test_upload_document_rejects_empty_file(tmp_path: Path) -> None:
             "app.services.document_service.save_uploaded_file",
             return_value=saved_path,
         ),
+        patch(
+            "app.services.document_service.AuditLogService",
+        ) as audit_log_service_mock,
         pytest.raises(
             ValueError,
             match="cannot be empty",
@@ -123,6 +160,7 @@ def test_upload_document_rejects_empty_file(tmp_path: Path) -> None:
         )
 
     assert not saved_path.exists()
+    audit_log_service_mock.assert_not_called()
 
 
 def test_upload_document_rejects_oversized_file(
@@ -144,6 +182,9 @@ def test_upload_document_rejects_oversized_file(
             "app.services.document_service.save_uploaded_file",
             return_value=saved_path,
         ),
+        patch(
+            "app.services.document_service.AuditLogService",
+        ) as audit_log_service_mock,
         pytest.raises(
             ValueError,
             match="10 MB",
@@ -156,6 +197,7 @@ def test_upload_document_rejects_oversized_file(
         )
 
     assert not saved_path.exists()
+    audit_log_service_mock.assert_not_called()
 
 
 def test_upload_document_deletes_file_when_database_fails(
@@ -180,6 +222,9 @@ def test_upload_document_deletes_file_when_database_fails(
             "app.services.document_service.create_document",
             side_effect=SQLAlchemyError("database failure"),
         ),
+        patch(
+            "app.services.document_service.AuditLogService",
+        ) as audit_log_service_mock,
         pytest.raises(SQLAlchemyError),
     ):
         upload_document(
@@ -190,3 +235,4 @@ def test_upload_document_deletes_file_when_database_fails(
 
     assert not saved_path.exists()
     database_session.rollback.assert_called_once()
+    audit_log_service_mock.assert_not_called()

@@ -2,8 +2,9 @@
 Application workflow for persistent AI document analysis.
 
 This service coordinates document state, AI analysis, business-rule
-evaluation, and persistence without exposing provider-specific AI
-logic or deterministic business rules to API routes.
+evaluation, persistence, audit logging, and workflow creation without
+exposing provider-specific AI logic or deterministic business rules
+to API routes.
 """
 
 from sqlalchemy.orm import Session
@@ -13,7 +14,11 @@ from app.ai.exceptions import (
     AIExtractionError,
 )
 from app.business_rules.engine import evaluate_business_rules
-from app.db.enums import DocumentStatus
+from app.db.enums import (
+    AuditAction,
+    AuditEntityType,
+    DocumentStatus,
+)
 from app.db.models.document import Document
 from app.repositories.document_repository import (
     update_ai_analysis,
@@ -21,6 +26,7 @@ from app.repositories.document_repository import (
     update_document_status,
 )
 from app.schemas.business_rule_schema import BusinessRuleResult
+from app.services.audit_log_service import AuditLogService
 from app.services.document_ai_service import DocumentAIService
 from app.services.workflow_service import WorkflowService
 
@@ -37,6 +43,9 @@ class DocumentAnalysisService:
         self.database_session = database_session
         self.ai_service = ai_service
         self.workflow_service = workflow_service
+        self.audit_log_service = AuditLogService(
+            database_session=database_session,
+        )
 
     def analyze(
         self,
@@ -47,17 +56,12 @@ class DocumentAnalysisService:
         persist the results, and return the document and rule decision.
         """
 
-        # AI analysis should only happen after text extraction
-        # has successfully completed.
         if document.status != DocumentStatus.TEXT_EXTRACTED:
             raise ValueError("Document is not ready for AI analysis.")
 
-        # Even if the status says TEXT_EXTRACTED, make sure
-        # there is actually text available for the AI.
         if not document.extracted_text:
             raise ValueError("Document does not contain extracted text.")
 
-        # Mark the document as currently being analyzed by AI.
         update_document_status(
             database_session=self.database_session,
             document=document,
@@ -65,14 +69,10 @@ class DocumentAnalysisService:
         )
 
         try:
-            # Phase 7:
-            # Classify the document and extract supported
-            # structured business data.
-            result = self.ai_service.analyze_document(document.extracted_text)
+            result = self.ai_service.analyze_document(
+                document.extracted_text,
+            )
 
-            # Phase 8:
-            # Apply deterministic business rules to the
-            # validated AI analysis result.
             business_rule_result = evaluate_business_rules(
                 document_type=result.classification.document_type,
                 extracted_data=result.extracted_data,
@@ -80,67 +80,90 @@ class DocumentAnalysisService:
 
             extracted_data = None
 
-            # Convert the Pydantic extraction result into
-            # JSON-compatible Python data before storing it
-            # in PostgreSQL's JSONB column.
             if result.extracted_data is not None:
-                extracted_data = result.extracted_data.model_dump(mode="json")
+                extracted_data = result.extracted_data.model_dump(
+                    mode="json",
+                )
 
-            # Persist the AI-generated classification and
-            # structured extraction results.
             update_ai_analysis(
                 database_session=self.database_session,
                 document=document,
                 document_type=result.classification.document_type,
-                classification_confidence=(result.classification.confidence),
+                classification_confidence=result.classification.confidence,
                 extracted_data=extracted_data,
             )
 
-            # Convert the validated business-rule result into
-            # JSON-compatible Python data for PostgreSQL JSONB.
-            business_rule_data = business_rule_result.model_dump(mode="json")
+            self.audit_log_service.record_event(
+                user_id=None,
+                action=AuditAction.DOCUMENT_CLASSIFIED,
+                entity_type=AuditEntityType.DOCUMENT,
+                entity_id=document.id,
+                event_metadata={
+                    "document_type": result.classification.document_type.value,
+                    "confidence": result.classification.confidence,
+                },
+            )
 
-            # Persist the deterministic Phase 8 decision.
+            if extracted_data is not None:
+                self.audit_log_service.record_event(
+                    user_id=None,
+                    action=AuditAction.DOCUMENT_FIELDS_EXTRACTED,
+                    entity_type=AuditEntityType.DOCUMENT,
+                    entity_id=document.id,
+                    event_metadata={
+                        "extracted_fields": sorted(
+                            key
+                            for key, value in extracted_data.items()
+                            if value is not None
+                        ),
+                    },
+                )
+
+            business_rule_data = business_rule_result.model_dump(
+                mode="json",
+            )
+
             update_business_rule_result(
                 database_session=self.database_session,
                 document=document,
                 business_rule_result=business_rule_data,
             )
 
-            # Phase 9:
-            # Convert the deterministic Phase 8 decision into
-            # persistent workflow state.
+            self.audit_log_service.record_event(
+                user_id=None,
+                action=AuditAction.RULE_CHECK_COMPLETED,
+                entity_type=AuditEntityType.DOCUMENT,
+                entity_id=document.id,
+                event_metadata={
+                    "next_action": business_rule_result.next_action.value,
+                    "requires_approval": (business_rule_result.requires_approval),
+                    "requires_manual_review": (
+                        business_rule_result.requires_manual_review
+                    ),
+                },
+            )
+
             self.workflow_service.create_from_business_rule(
                 document=document,
                 business_rule_result=business_rule_result,
             )
 
-            # The document is considered fully analyzed only
-            # after both AI results and business-rule results
-            # have been successfully persisted.
             update_document_status(
                 database_session=self.database_session,
                 document=document,
                 status=DocumentStatus.ANALYZED,
             )
 
-            # Return both:
-            # 1. persistent document state
-            # 2. deterministic Phase 8 business decision
             return document, business_rule_result
 
         except (
             AIClassificationError,
             AIExtractionError,
         ):
-            # If classification or extraction fails,
-            # record that failure in PostgreSQL.
             update_document_status(
                 database_session=self.database_session,
                 document=document,
                 status=DocumentStatus.AI_PROCESSING_FAILED,
             )
 
-            # Re-raise the original AI error so the layer
-            # above this service can handle it.
             raise
