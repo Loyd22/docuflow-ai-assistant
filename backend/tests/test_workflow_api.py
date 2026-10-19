@@ -624,7 +624,6 @@ def test_admin_can_view_another_users_workflow(
     assert response.json()["id"] == workflow.id
 
 
-
 def test_employee_list_workflows_returns_only_own_workflows(
     client: TestClient,
     db_session: Session,
@@ -676,10 +675,7 @@ def test_employee_list_workflows_returns_only_own_workflows(
 
     assert response.status_code == 200
 
-    workflow_ids = {
-        workflow["id"]
-        for workflow in response.json()
-    }
+    workflow_ids = {workflow["id"] for workflow in response.json()}
 
     assert own_workflow.id in workflow_ids
     assert other_workflow.id not in workflow_ids
@@ -726,10 +722,7 @@ def test_manager_list_workflows_returns_all_workflows(
 
     assert response.status_code == 200
 
-    workflow_ids = {
-        workflow["id"]
-        for workflow in response.json()
-    }
+    workflow_ids = {workflow["id"] for workflow in response.json()}
 
     assert employee_workflow.id in workflow_ids
 
@@ -775,10 +768,7 @@ def test_admin_list_workflows_returns_all_workflows(
 
     assert response.status_code == 200
 
-    workflow_ids = {
-        workflow["id"]
-        for workflow in response.json()
-    }
+    workflow_ids = {workflow["id"] for workflow in response.json()}
 
     assert employee_workflow.id in workflow_ids
 

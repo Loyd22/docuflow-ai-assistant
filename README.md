@@ -15,14 +15,23 @@ Completed:
 * Phase 9 — Workflow & Approval
 * Phase 10 — RAG / Document Q&A
 * Phase 11 — Dashboard & Audit Logs
-Next:
+
+Implemented and in final verification:
 * Phase 12 — Frontend
+
+Next:
+* Phase 13 — Testing
 ---
 ## Technology Stack
 ### Frontend
 * React
 * Vite
 * TypeScript
+* React Router
+* Axios
+* JWT-aware API client
+* Role-aware protected routes
+* Responsive CSS component styling
 ### Backend
 * Python
 * FastAPI
@@ -111,6 +120,31 @@ Next:
 ---
 ## Project Architecture
 DocuFlow currently follows a modular monolith structure.
+
+Phase 12 adds a separate React frontend that consumes the FastAPI application over HTTP.
+
+```text
+frontend/
+├── src/
+│   ├── api/
+│   │   ├── auditLogApi.ts
+│   │   ├── client.ts
+│   │   ├── dashboardApi.ts
+│   │   ├── documentApi.ts
+│   │   └── workflowApi.ts
+│   ├── auth/
+│   ├── components/
+│   │   ├── audit-logs/
+│   │   ├── dashboard/
+│   │   ├── documents/
+│   │   ├── layout/
+│   │   └── workflows/
+│   ├── pages/
+│   ├── types/
+│   ├── App.tsx
+│   └── main.tsx
+```
+
 ```text
 backend/
 ├── app/
@@ -635,6 +669,37 @@ stored_file_name
 file_path
 ```
 are not exposed through the public response.
+
+### Document Detail Endpoint
+Phase 12 introduced a read-only detail endpoint for workflow review:
+
+```text
+GET /documents/{document_id}
+```
+
+It returns the normal public document metadata plus review-facing fields:
+
+```text
+extracted_text
+summary
+classification_confidence
+extracted_data
+business_rule_result
+```
+
+Authorization:
+
+```text
+employee
+→ may view only documents they uploaded
+
+manager / admin
+→ may view employee documents for workflow review
+```
+
+The endpoint does not expose internal storage fields such as `stored_file_name` or `file_path`.
+
+Processing, analysis, indexing, and RAG Q&A endpoints keep their existing ownership restrictions; the broader manager/admin permission applies only to read-only document review.
 ### Upload Failure Cleanup
 ```text
 Save file
@@ -1454,17 +1519,25 @@ created_at
 
 System-generated events may use user_id = null.
 Audit metadata stores useful context without copying entire business records or extracted document contents.
-### Audit History Endpoint
+### Audit Log Endpoints
 
+```text
+GET /audit-logs
 GET /audit-logs/{entity_type}/{entity_id}
+```
 
-The endpoint is restricted to:
+Both endpoints are restricted to:
 
+```text
 manager
 admin
+```
 
-Employees receive 403 Forbidden.
-Audit history is returned in chronological order.
+Employees receive `403 Forbidden`.
+
+`GET /audit-logs` returns the general audit feed from newest to oldest for the Phase 12 Audit Logs page.
+
+`GET /audit-logs/{entity_type}/{entity_id}` returns one entity's audit history in chronological order.
 ### Dashboard Summary Endpoint
 
 GET /dashboard/summary
@@ -1860,6 +1933,17 @@ A dedicated successful PDF extraction fixture can be expanded later.
 * `business_rule_result` JSONB persistence
 * high-value invoice manager-review routing
 * successful analyzed status through the HTTP API
+#### Document Details / Workflow Review
+* document owner can retrieve detailed document data
+* unrelated employee receives `403 Forbidden`
+* manager can review another user's document
+* admin can review another user's document
+* unknown document returns `404`
+* authentication is required
+* extracted text, summary, classification confidence, structured extraction, and business-rule data are returned
+* internal storage fields remain hidden
+
+The focused document API suite currently contains 24 passing tests.
 ### AI Unit and Workflow Tests
 Phase 7 testing includes:
 * document-classifier success behavior
@@ -1904,7 +1988,7 @@ Phase 9 service testing includes:
 * information requests map to `needs_information`
 * approval decisions are rejected for workflows not waiting for approval
 ### Workflow API Integration Tests
-Phase 9 API testing includes:
+Workflow API testing includes:
 * authenticated workflow retrieval
 * unknown workflow returns `404`
 * employee cannot submit approval decisions
@@ -1916,7 +2000,12 @@ Phase 9 API testing includes:
 * employee cannot view another user's workflow
 * manager can view another user's workflow
 * admin can view another user's workflow
-The focused workflow API suite currently contains 11 tests.
+* employee workflow listing is restricted to owned documents
+* manager workflow listing includes cross-user workflows
+* admin workflow listing includes cross-user workflows
+* workflow listing requires authentication
+
+The focused workflow API suite currently contains 15 passing tests.
 ### Workflow PostgreSQL Integration
 The document-analysis integration suite verifies real workflow persistence for:
 * high-value invoice → `pending_approval`
@@ -1943,18 +2032,25 @@ Phase 10 testing includes:
 * authenticated document Q&A API behavior
 * ownership authorization for indexing and Q&A
 ### Audit Log Tests
-Phase 11 audit testing includes:
+Audit testing includes:
 * manager can retrieve entity audit history
 * admin can retrieve entity audit history
 * employee audit-history access is rejected
 * audit history is returned chronologically
 * entities without audit history return an empty list
+* manager can retrieve the general audit feed
+* admin can retrieve the general audit feed
+* employee access to the general audit feed is rejected
+* unauthenticated general audit access is rejected
+* the general audit feed is returned newest first
 * workflow creation records an audit event
 * approval, rejection, and information requests record the correct audit action
-* document upload records DOCUMENT_UPLOADED
-* successful text extraction records DOCUMENT_TEXT_EXTRACTED
+* document upload records `DOCUMENT_UPLOADED`
+* successful text extraction records `DOCUMENT_TEXT_EXTRACTED`
 * successful AI analysis records classification, extraction, and business-rule audit events
 * failed operations do not create misleading success audit events
+
+The focused audit-log API suite currently contains 10 passing tests.
 ### Dashboard API Integration Tests
 Phase 11 dashboard testing includes:
 * manager dashboard access
@@ -1978,12 +2074,33 @@ backend/uploads/
 ```
 The integration-test database is created from SQLAlchemy metadata and isolated using database transactions.
 ### Current Test Status
-The full `pytest` suite passed after integrating the Phase 9 workflow service with the existing document-analysis pipeline. Run the latest local suite again before committing to record the final Phase 9 test count.
-The exact test count should be taken from the latest local:
+Focused Phase 12 regression suites currently verified:
+
+```text
+Workflow API: 15 passed
+Audit Log API: 10 passed
+Document API: 24 passed
+```
+
+Before committing Phase 12, run the complete local suite:
+
 ```bash
 pytest -v
 ```
-output when maintaining this README.
+
+and record the exact full-suite count from that run.
+
+Also verify backend formatting/linting and frontend production checks:
+
+```bash
+ruff format --check app tests
+ruff check app tests
+```
+
+```bash
+npm run lint
+npm run build
+```
 The test suite currently covers:
 * authentication
 * authorization
@@ -2099,11 +2216,22 @@ Workflow Routing & Approval      ✅
 RAG / Document Q&A               ✅
 Dashboard & Audit Logs           ✅
 ```
-The next stage is:
+The Phase 12 frontend is now implemented and connected to the backend.
+
 ```text
-Frontend
+Authentication / Role Routing     ✅
+Dashboard                         ✅
+Documents                         ✅
+Document Upload / Process         ✅
+AI Analyze                        ✅
+RAG Index / Q&A                   ✅
+Workflows                         ✅
+Human Approval Decisions          ✅
+Workflow Document Review          ✅
+Audit Logs                        ✅
 ```
-which will be introduced in Phase 12.
+
+The next major phase is Phase 13 — Testing, after final Phase 12 regression verification and documentation.
 ---
 ## Supported Document Types
 DocuFlow is designed to support:
@@ -2778,3 +2906,208 @@ The exact final test count should be recorded from the latest local pytest -v ou
 DocuFlow is now ready to move into:
 
 Phase 12 — Frontend
+
+---
+
+## Phase 12 Frontend Implementation Summary
+Phase 12 introduced DocuFlow's authenticated React frontend and connected the previously completed backend features into one usable application.
+
+### Implemented
+```text
+React + Vite + TypeScript application shell
+React Router navigation
+JWT token persistence
+Axios request interceptor
+Authenticated route protection
+Role-aware route protection
+Role-aware sidebar navigation
+Login flow
+Dashboard summary page
+Document listing
+Document upload
+Document processing
+AI analysis action
+RAG indexing
+Document Q&A with source chunks
+Workflow listing
+Manager/admin workflow decisions
+Workflow document-review details
+Audit-log feed
+Loading, empty, success, and error states
+Production TypeScript build verification
+Frontend lint verification
+```
+
+### Frontend Authentication Flow
+```text
+Login
+↓
+POST /auth/login
+↓
+Persist JWT
+↓
+GET /auth/me
+↓
+Resolve authenticated user + role
+↓
+Protected application layout
+↓
+Role-aware navigation
+```
+
+Employees are routed to document-oriented functionality.
+
+Managers and administrators additionally receive access to dashboard and audit-log screens.
+
+### Document Frontend Flow
+```text
+Documents Page
+↓
+GET /documents
+↓
+Upload
+↓
+POST /documents
+↓
+Process
+↓
+POST /documents/{document_id}/process
+↓
+Analyze
+↓
+POST /documents/{document_id}/analyze
+↓
+Index
+↓
+POST /documents/{document_id}/index
+↓
+Ask
+↓
+POST /documents/{document_id}/ask
+↓
+Grounded answer + source chunks
+```
+
+The document list also exposes the derived `is_indexed` state so the frontend can decide whether to show Index or Ask actions.
+
+### Workflow Frontend Flow
+```text
+Workflows Page
+↓
+GET /workflows
+↓
+Employee
+→ own workflows only
+
+Manager / Admin
+→ all workflows
+↓
+Pending Approval
+↓
+Review
+↓
+GET /documents/{document_id}
+↓
+Document metadata
+AI classification confidence
+Structured extracted data
+Business-rule result
+Extracted text
+↓
+Human Decision
+↓
+POST /workflows/{workflow_id}/decision
+↓
+Approved / Rejected / Needs Information
+```
+
+The decision controls remain disabled while document details are unavailable, so managers do not approve a workflow without the review context successfully loading.
+
+### Audit Logs Frontend Flow
+```text
+Manager / Admin
+↓
+Audit Logs Page
+↓
+GET /audit-logs
+↓
+Newest audit events first
+↓
+Action
+Entity
+Entity ID
+User / System
+Metadata
+Timestamp
+```
+
+Entity-specific chronological history remains available through:
+
+```text
+GET /audit-logs/{entity_type}/{entity_id}
+```
+
+### Dashboard Frontend Flow
+```text
+Manager / Admin
+↓
+GET /dashboard/summary
+↓
+Document totals
+Document counts by status
+Document counts by type
+Workflow totals
+Workflow counts by status
+↓
+Dashboard cards / summaries
+```
+
+### Phase 12 Backend Support Added
+The frontend required a small number of read-oriented backend extensions:
+
+```text
+GET /workflows
+GET /audit-logs
+GET /documents/{document_id}
+```
+
+`GET /documents/{document_id}` uses a dedicated `DocumentDetailResponse` instead of expanding the lightweight list response.
+
+Review-facing fields include:
+
+```text
+extracted_text
+summary
+classification_confidence
+extracted_data
+business_rule_result
+```
+
+Internal storage fields remain private.
+
+### Phase 12 Focused Regression Verification
+Current focused backend results:
+
+```text
+Workflow API: 15 passed
+Audit Log API: 10 passed
+Document API: 24 passed
+```
+
+Frontend verification has included:
+
+```text
+npm run lint
+npm run build
+```
+
+Before the Phase 12 commit, run the complete backend regression suite and final lint/build commands and record the exact full-suite result.
+
+### Phase 12 Status
+The Phase 12 feature implementation is complete and is in final regression verification.
+
+Next:
+
+```text
+Phase 13 — Testing
+```
