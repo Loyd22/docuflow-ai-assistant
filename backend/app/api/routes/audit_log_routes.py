@@ -22,6 +22,30 @@ router = APIRouter(
 
 
 @router.get(
+    "",
+    response_model=list[AuditLogResponse],
+)
+def get_audit_logs(
+    current_user: User = Depends(
+        require_roles(
+            UserRole.MANAGER,
+            UserRole.ADMIN,
+        )
+    ),
+    database_session: Session = Depends(get_db_session),
+) -> list[AuditLogResponse]:
+    """Return all audit logs for managers and administrators."""
+
+    audit_log_service = AuditLogService(
+        database_session=database_session,
+    )
+
+    audit_logs = audit_log_service.get_all_logs()
+
+    return [AuditLogResponse.model_validate(audit_log) for audit_log in audit_logs]
+
+
+@router.get(
     "/{entity_type}/{entity_id}",
     response_model=list[AuditLogResponse],
 )

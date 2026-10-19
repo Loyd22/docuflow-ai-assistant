@@ -7,7 +7,7 @@ It should not contain file-storage logic, HTTP logic, or business rules.
 
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.db.enums import DocumentStatus, DocumentType
 from app.db.models.document import Document
@@ -117,3 +117,18 @@ def update_business_rule_result(
     database_session.refresh(document)
 
     return document
+
+
+def get_documents_by_user(
+    database_session: Session,
+    uploaded_by: int,
+) -> list[Document]:
+    """Return documents uploaded by a specific user."""
+
+    return (
+        database_session.query(Document)
+        .options(selectinload(Document.chunks))
+        .filter(Document.uploaded_by == uploaded_by)
+        .order_by(Document.created_at.desc())
+        .all()
+    )

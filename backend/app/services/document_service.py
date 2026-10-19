@@ -13,7 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.db.enums import AuditAction, AuditEntityType
 from app.db.models.document import Document
-from app.repositories.document_repository import create_document
+from app.repositories.document_repository import (
+    create_document,
+    get_documents_by_user,
+)
 from app.services.audit_log_service import AuditLogService
 from app.storage.file_storage import (
     generate_stored_file_name,
@@ -52,6 +55,19 @@ def validate_file_size(file_path: Path) -> int:
         raise ValueError("Uploaded file exceeds the 10 MB size limit.")
 
     return file_size
+
+
+def list_documents(
+    database_session: Session,
+    *,
+    uploaded_by: int,
+) -> list[Document]:
+    """Return documents belonging to the authenticated user."""
+
+    return get_documents_by_user(
+        database_session,
+        uploaded_by=uploaded_by,
+    )
 
 
 def upload_document(

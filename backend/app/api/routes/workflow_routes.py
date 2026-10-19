@@ -12,7 +12,11 @@ from app.api.dependencies import get_current_user, require_roles
 from app.db.enums import UserRole
 from app.db.models.user import User
 from app.db.session import get_db_session
-from app.repositories.workflow_repository import get_workflow_by_id
+from app.repositories.workflow_repository import (
+    get_all_workflows,
+    get_workflow_by_id,
+    get_workflows_by_uploader,
+)
 from app.schemas.workflow_schema import (
     ApprovalDecisionRequest,
     ApprovalResponse,
@@ -28,6 +32,29 @@ router = APIRouter(
     prefix="/workflows",
     tags=["Workflows"],
 )
+
+
+@router.get(
+    "",
+    response_model=list[WorkflowResponse],
+)
+def list_workflows(
+    current_user: User = Depends(get_current_user),
+    database_session: Session = Depends(get_db_session),
+) -> list[WorkflowResponse]:
+    """Return workflows visible to the authenticated user."""
+
+    if current_user.role == UserRole.EMPLOYEE:
+        workflows = get_workflows_by_uploader(
+            database_session=database_session,
+            uploaded_by=current_user.id,
+        )
+    else:
+        workflows = get_all_workflows(
+            database_session=database_session,
+        )
+
+    return [WorkflowResponse.model_validate(workflow) for workflow in workflows]
 
 
 @router.get(

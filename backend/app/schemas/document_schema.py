@@ -6,6 +6,7 @@ document-related API endpoints.
 """
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -24,6 +25,7 @@ class DocumentResponse(BaseModel):
     file_size: int
     document_type: DocumentType
     status: DocumentStatus
+    is_indexed: bool
     created_at: datetime
     updated_at: datetime
 
@@ -53,3 +55,13 @@ class DocumentIndexResponse(BaseModel):
 
     document_id: int
     chunks_indexed: int
+
+
+class DocumentDetailResponse(DocumentResponse):
+    """Detailed document information used for review workflows."""
+
+    extracted_text: str | None
+    summary: str | None
+    classification_confidence: float | None
+    extracted_data: dict[str, Any] | None
+    business_rule_result: dict[str, Any] | None

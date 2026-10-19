@@ -139,3 +139,12 @@ class Document(Base):
         cascade="all, delete-orphan",
         order_by="DocumentChunk.chunk_index",
     )
+
+    @property
+    def is_indexed(self) -> bool:
+        """Return True when all document chunks have embeddings."""
+
+        if not self.chunks:
+            return False
+
+        return all(chunk.embedding is not None for chunk in self.chunks)

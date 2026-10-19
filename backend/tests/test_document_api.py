@@ -5,9 +5,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.enums import DocumentType
+from app.db.enums import DocumentType, UserRole
 from app.db.models.document import Document
 from app.db.models.document_chunk import DocumentChunk
+from app.db.models.user import User
 from app.schemas.ai_schema import (
     DocumentClassification,
     InvoiceExtraction,
@@ -89,6 +90,7 @@ def test_upload_document_success(
     assert response_data["file_size"] == len(b"test invoice content")
     assert response_data["document_type"] == "unknown"
     assert response_data["status"] == "uploaded"
+    assert response_data["is_indexed"] is False
 
     assert isinstance(response_data["id"], int)
     assert isinstance(response_data["uploaded_by"], int)
@@ -298,6 +300,7 @@ def test_process_document_success(
     db_session.refresh(document)
 
     assert document.status.value == "text_extracted"
+    assert response_data["is_indexed"] is False
     assert document.extracted_text == "Employees must follow company policy."
 
 
@@ -489,6 +492,7 @@ def test_analyze_invoice_persists_business_rule_result(
     assert response_data["id"] == document_id
     assert response_data["document_type"] == "invoice"
     assert response_data["status"] == "analyzed"
+    assert response_data["is_indexed"] is False
 
     # Step 5:
     # Reload the document from PostgreSQL.
@@ -598,6 +602,12 @@ def test_index_document_success(
     assert len(chunks) == response_data["chunks_indexed"]
 
     assert all(chunk.embedding is not None for chunk in chunks)
+
+    db_session.expire_all()
+
+    document = db_session.query(Document).filter(Document.id == document_id).one()
+
+    assert document.is_indexed is True
 
 
 def test_index_document_requires_authentication(
@@ -866,3 +876,316 @@ def test_ask_document_question_rejects_different_user(
     assert response.json()["detail"] == (
         "You are not allowed to ask questions about this document."
     )
+
+
+def test_document_owner_can_view_document_details(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The document owner should be able to view detailed document data."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    access_token = register_and_login(
+        client,
+        email="document-detail-owner@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+        files={
+            "uploaded_file": (
+                "review-document.txt",
+                b"Invoice Number: INV-DETAIL-001",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    document = db_session.get(
+        Document,
+        document_id,
+    )
+
+    assert document is not None
+
+    document.extracted_text = (
+        "Invoice Number: INV-DETAIL-001"
+    )
+    document.summary = "Invoice requiring manager review."
+    document.document_type = DocumentType.INVOICE
+    document.classification_confidence = 0.97
+    document.extracted_data = {
+        "invoice_number": "INV-DETAIL-001",
+        "total_amount": 25000.00,
+    }
+    document.business_rule_result = {
+        "requires_approval": True,
+        "approval_role": "manager",
+        "next_action": "manager_review",
+    }
+
+    db_session.commit()
+
+    response = client.get(
+        f"/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    response_data = response.json()
+
+    assert response_data["id"] == document_id
+    assert response_data["original_file_name"] == "review-document.txt"
+    assert response_data["document_type"] == "invoice"
+    assert response_data["extracted_text"] == (
+        "Invoice Number: INV-DETAIL-001"
+    )
+    assert response_data["summary"] == (
+        "Invoice requiring manager review."
+    )
+    assert response_data["classification_confidence"] == 0.97
+
+    assert response_data["extracted_data"] == {
+        "invoice_number": "INV-DETAIL-001",
+        "total_amount": 25000.00,
+    }
+
+    assert response_data["business_rule_result"] == {
+        "requires_approval": True,
+        "approval_role": "manager",
+        "next_action": "manager_review",
+    }
+
+    # Internal storage information must stay private.
+    assert "stored_file_name" not in response_data
+    assert "file_path" not in response_data
+
+
+def test_employee_cannot_view_another_users_document_details(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Employees should not view another user's document details."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    owner_token = register_and_login(
+        client,
+        email="detail-document-owner@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {owner_token}",
+        },
+        files={
+            "uploaded_file": (
+                "private-review.txt",
+                b"Private review document.",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    other_employee_token = register_and_login(
+        client,
+        email="detail-other-employee@example.com",
+    )
+
+    response = client.get(
+        f"/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {other_employee_token}",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "You are not allowed to view this document."
+    )
+
+
+def test_manager_can_view_another_users_document_details(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Managers should be able to review employee documents."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    owner_token = register_and_login(
+        client,
+        email="manager-review-owner@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {owner_token}",
+        },
+        files={
+            "uploaded_file": (
+                "manager-review.txt",
+                b"Document for manager review.",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    manager_email = "document-review-manager@example.com"
+
+    manager_token = register_and_login(
+        client,
+        email=manager_email,
+    )
+
+    manager = (
+        db_session.query(User)
+        .filter(User.email == manager_email)
+        .one()
+    )
+
+    manager.role = UserRole.MANAGER
+    db_session.commit()
+    db_session.refresh(manager)
+
+    response = client.get(
+        f"/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {manager_token}",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == document_id
+
+
+def test_admin_can_view_another_users_document_details(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Admins should be able to review employee documents."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    owner_token = register_and_login(
+        client,
+        email="admin-review-owner@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={
+            "Authorization": f"Bearer {owner_token}",
+        },
+        files={
+            "uploaded_file": (
+                "admin-review.txt",
+                b"Document for admin review.",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    admin_email = "document-review-admin@example.com"
+
+    admin_token = register_and_login(
+        client,
+        email=admin_email,
+    )
+
+    admin = (
+        db_session.query(User)
+        .filter(User.email == admin_email)
+        .one()
+    )
+
+    admin.role = UserRole.ADMIN
+    db_session.commit()
+    db_session.refresh(admin)
+
+    response = client.get(
+        f"/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {admin_token}",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == document_id
+
+
+def test_get_document_details_returns_not_found(
+    client: TestClient,
+) -> None:
+    """Unknown document IDs should return 404."""
+
+    access_token = register_and_login(
+        client,
+        email="document-detail-not-found@example.com",
+    )
+
+    response = client.get(
+        "/documents/999999",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found."
+
+
+def test_get_document_details_requires_authentication(
+    client: TestClient,
+) -> None:
+    """Anonymous users should not be able to view document details."""
+
+    response = client.get(
+        "/documents/1",
+    )
+
+    assert response.status_code in (401, 403)

@@ -1,0 +1,106 @@
+.document-table-wrapper {
+  overflow-x: auto;
+
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.document-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.document-table th,
+.document-table td {
+  padding: 14px 16px;
+
+  text-align: left;
+  white-space: nowrap;
+
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.document-table th {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 600;
+
+  background: #f9fafb;
+}
+
+.document-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.document-table tbody tr:hover {
+  background: #f9fafb;
+}
+
+.status-badge {
+  display: inline-block;
+
+  padding: 4px 8px;
+
+  font-size: 12px;
+
+  background: #eef2ff;
+  border-radius: 999px;
+}
+.document-action-button {
+  padding: 7px 12px;
+
+  color: #ffffff;
+
+  background: #111827;
+  border: 0;
+  border-radius: 6px;
+}
+
+.document-action-button:hover:not(:disabled) {
+  background: #1f2937;
+}
+
+.document-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.action-unavailable {
+  color: #9ca3af;
+}
+
+.document-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.document-action-button {
+  padding: 7px 12px;
+
+  color: #ffffff;
+
+  background: #111827;
+  border: 0;
+  border-radius: 6px;
+}
+
+.document-action-button:hover:not(:disabled) {
+  background: #1f2937;
+}
+
+.document-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.action-unavailable {
+  color: #9ca3af;
+}
+
+.document-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

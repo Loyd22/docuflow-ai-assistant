@@ -21,12 +21,14 @@ from app.ai.exceptions import (
 from app.ai.extractor import InvoiceExtractor
 from app.ai.qa_generator import DocumentQAGenerator
 from app.api.dependencies import get_current_user
+from app.db.enums import UserRole
 from app.db.models.user import User
 from app.db.session import get_db_session
 from app.processing.exceptions import DocumentProcessingError
 from app.rag.chunker import TextChunker
 from app.repositories.document_repository import get_document_by_id
 from app.schemas.document_schema import (
+    DocumentDetailResponse,
     DocumentIndexResponse,
     DocumentQuestionRequest,
     DocumentQuestionResponse,
@@ -40,7 +42,10 @@ from app.services.document_indexing_service import DocumentIndexingService
 from app.services.document_processing_service import process_document
 from app.services.document_qa_service import DocumentQAService
 from app.services.document_retrieval_service import DocumentRetrievalService
-from app.services.document_service import upload_document
+from app.services.document_service import (
+    list_documents,
+    upload_document,
+)
 from app.services.workflow_service import WorkflowService
 
 router = APIRouter(
@@ -363,3 +368,56 @@ def index_document_for_rag(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Document indexing failed.",
         ) from error
+
+
+@router.get(
+    "/{document_id}",
+    response_model=DocumentDetailResponse,
+)
+def get_document_details(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    database_session: Session = Depends(get_db_session),
+) -> DocumentDetailResponse:
+    """Return detailed information for one document."""
+
+    document = get_document_by_id(
+        database_session=database_session,
+        document_id=document_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    # Employees may only inspect documents they uploaded.
+    if (
+        current_user.role == UserRole.EMPLOYEE
+        and document.uploaded_by != current_user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not allowed to view this document.",
+        )
+
+    return DocumentDetailResponse.model_validate(document)
+
+
+@router.get(
+    "",
+    response_model=list[DocumentResponse],
+)
+def get_documents(
+    current_user: User = Depends(get_current_user),
+    database_session: Session = Depends(get_db_session),
+) -> list[DocumentResponse]:
+    """Return documents uploaded by the authenticated user."""
+
+    documents = list_documents(
+        database_session,
+        uploaded_by=current_user.id,
+    )
+
+    return [DocumentResponse.model_validate(document) for document in documents]

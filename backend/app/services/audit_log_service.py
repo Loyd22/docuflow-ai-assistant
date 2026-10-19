@@ -14,6 +14,7 @@ from app.db.enums import AuditAction, AuditEntityType
 from app.db.models.audit_log import AuditLog
 from app.repositories.audit_log_repository import (
     create_audit_log,
+    get_all_audit_logs,
     get_audit_logs_by_entity,
 )
 
@@ -45,6 +46,13 @@ class AuditLogService:
             entity_type=entity_type,
             entity_id=entity_id,
             event_metadata=event_metadata,
+        )
+
+    def get_all_logs(self) -> list[AuditLog]:
+        """Return all audit events from newest to oldest."""
+
+        return get_all_audit_logs(
+            database_session=self.database_session,
         )
 
     def get_entity_history(

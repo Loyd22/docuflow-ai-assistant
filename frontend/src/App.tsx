@@ -1,48 +1,83 @@
-/**
- * Temporary Phase 2 application screen.
- *
- * This screen verifies that the React frontend can communicate
- * with the FastAPI backend.
- */
+import {
+  Route,
+  Routes,
+} from "react-router-dom";
 
-import { useEffect, useState } from "react";
-
-import { apiClient } from "./api/client";
-
-
-type HealthResponse = {
-  status: string;
-  service: string;
-};
-
+import { ProtectedRoute } from "./auth/ProtectedRoute";
+import { RoleHomeRedirect } from "./auth/RoleHomeRedirect";
+import { RoleProtectedRoute } from "./auth/RoleProtectedRoute";
+import AppLayout from "./layouts/AppLayout";
+import AuditLogsPage from "./pages/AuditLogsPage";
+import DashboardPage from "./pages/DashboardPage";
+import DocumentsPage from "./pages/DocumentsPage";
+import ForbiddenPage from "./pages/ForbiddenPage";
+import LoginPage from "./pages/LoginPage";
+import NotFoundPage from "./pages/NotFoundPage";
+import WorkflowsPage from "./pages/WorkflowsPage";
 
 function App() {
-  const [backendStatus, setBackendStatus] = useState("Checking...");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function checkBackendHealth() {
-      try {
-        const response = await apiClient.get<HealthResponse>("/health");
-
-        setBackendStatus(response.data.status);
-      } catch {
-        setBackendStatus("unavailable");
-        setErrorMessage("The frontend could not connect to the backend.");
-      }
-    }
-
-    checkBackendHealth();
-  }, []);
-
   return (
-    <main>
-      <h1>DocuFlow AI</h1>
+    <Routes>
+      <Route
+        path="/login"
+        element={<LoginPage />}
+      />
 
-      <p>Backend status: {backendStatus}</p>
+      <Route
+        path="/forbidden"
+        element={<ForbiddenPage />}
+      />
 
-      {errorMessage && <p>{errorMessage}</p>}
-    </main>
+      <Route
+        element={
+          <ProtectedRoute>
+            <AppLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route
+          path="/"
+          element={<RoleHomeRedirect />}
+        />
+
+        <Route
+          path="/dashboard"
+          element={
+            <RoleProtectedRoute
+              allowedRoles={["manager", "admin"]}
+            >
+              <DashboardPage />
+            </RoleProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/documents"
+          element={<DocumentsPage />}
+        />
+
+        <Route
+          path="/workflows"
+          element={<WorkflowsPage />}
+        />
+
+        <Route
+          path="/audit-logs"
+          element={
+            <RoleProtectedRoute
+              allowedRoles={["manager", "admin"]}
+            >
+              <AuditLogsPage />
+            </RoleProtectedRoute>
+          }
+        />
+      </Route>
+
+      <Route
+        path="*"
+        element={<NotFoundPage />}
+      />
+    </Routes>
   );
 }
 

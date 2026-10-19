@@ -59,3 +59,15 @@ def get_audit_logs_by_entity(
     )
 
     return list(database_session.scalars(statement))
+
+
+def get_all_audit_logs(
+    database_session: Session,
+) -> list[AuditLog]:
+    """Return all audit logs ordered from newest to oldest."""
+
+    statement = select(AuditLog).order_by(
+        AuditLog.created_at.desc(),
+    )
+
+    return list(database_session.scalars(statement).all())

@@ -7,6 +7,8 @@
 
 import axios from "axios";
 
+import { getAccessToken } from "../auth/tokenStorage";
+
 // Read the backend URL from the Vite environment configuration.
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
 
@@ -17,10 +19,17 @@ if (!apiBaseUrl) {
 export const apiClient = axios.create({
   baseURL: apiBaseUrl,
 
-  // Prevent requests from waiting forever.
+  // Prevent normal requests from waiting forever.
   timeout: 10_000,
+});
 
-  headers: {
-    "Content-Type": "application/json",
-  },
+// Add the JWT automatically when the user is logged in.
+apiClient.interceptors.request.use((config) => {
+  const accessToken = getAccessToken();
+
+  if (accessToken) {
+    config.headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return config;
 });

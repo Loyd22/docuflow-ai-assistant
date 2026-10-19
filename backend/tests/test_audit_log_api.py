@@ -300,3 +300,181 @@ def test_entity_without_audit_history_returns_empty_list(
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_manager_can_list_all_audit_logs(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """Managers should be able to retrieve the full audit log."""
+
+    manager, access_token = create_test_user_and_token(
+        client,
+        db_session,
+        name="Audit List Manager",
+        email="audit-list-manager@example.com",
+        role=UserRole.MANAGER,
+    )
+
+    audit_log = create_test_audit_log(
+        db_session,
+        user_id=manager.id,
+        action=AuditAction.WORKFLOW_APPROVED,
+        entity_type=AuditEntityType.WORKFLOW,
+        entity_id=200,
+        event_metadata={
+            "new_status": "approved",
+        },
+    )
+
+    response = client.get(
+        "/audit-logs",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    response_data = response.json()
+
+    audit_log_ids = {
+        item["id"]
+        for item in response_data
+    }
+
+    assert audit_log.id in audit_log_ids
+
+
+def test_admin_can_list_all_audit_logs(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """Admins should be able to retrieve the full audit log."""
+
+    admin, access_token = create_test_user_and_token(
+        client,
+        db_session,
+        name="Audit List Admin",
+        email="audit-list-admin@example.com",
+        role=UserRole.ADMIN,
+    )
+
+    audit_log = create_test_audit_log(
+        db_session,
+        user_id=admin.id,
+        action=AuditAction.WORKFLOW_REJECTED,
+        entity_type=AuditEntityType.WORKFLOW,
+        entity_id=201,
+        event_metadata={
+            "new_status": "rejected",
+        },
+    )
+
+    response = client.get(
+        "/audit-logs",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    audit_log_ids = {
+        item["id"]
+        for item in response.json()
+    }
+
+    assert audit_log.id in audit_log_ids
+
+
+def test_employee_cannot_list_all_audit_logs(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """Employees should not be allowed to view the full audit log."""
+
+    _, access_token = create_test_user_and_token(
+        client,
+        db_session,
+        name="Audit List Employee",
+        email="audit-list-employee@example.com",
+        role=UserRole.EMPLOYEE,
+    )
+
+    response = client.get(
+        "/audit-logs",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert response.status_code == 403
+
+
+def test_list_audit_logs_requires_authentication(
+    client: TestClient,
+) -> None:
+    """The full audit log should require authentication."""
+
+    response = client.get("/audit-logs")
+
+    assert response.status_code == 401
+
+
+def test_all_audit_logs_are_returned_newest_first(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """The main audit-log endpoint should return newest events first."""
+
+    manager, access_token = create_test_user_and_token(
+        client,
+        db_session,
+        name="Audit Order Manager",
+        email="audit-order-manager@example.com",
+        role=UserRole.MANAGER,
+    )
+
+    first_audit_log = create_test_audit_log(
+        db_session,
+        user_id=manager.id,
+        action=AuditAction.WORKFLOW_CREATED,
+        entity_type=AuditEntityType.WORKFLOW,
+        entity_id=202,
+    )
+
+    second_audit_log = create_test_audit_log(
+        db_session,
+        user_id=manager.id,
+        action=AuditAction.WORKFLOW_APPROVED,
+        entity_type=AuditEntityType.WORKFLOW,
+        entity_id=202,
+    )
+
+    response = client.get(
+        "/audit-logs",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    response_data = response.json()
+
+    returned_ids = [
+        item["id"]
+        for item in response_data
+    ]
+
+    first_index = returned_ids.index(
+        first_audit_log.id,
+    )
+    second_index = returned_ids.index(
+        second_audit_log.id,
+    )
+
+    # The second event was created later,
+    # so it should appear earlier in the list.
+    assert second_index < first_index

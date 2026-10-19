@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.enums import WorkflowPriority, WorkflowStatus
+from app.db.models.document import Document
 from app.db.models.workflow import Workflow
 
 
@@ -88,3 +89,38 @@ def save_workflow(
     database_session.refresh(workflow)
 
     return workflow
+
+
+def get_all_workflows(
+    database_session: Session,
+) -> list[Workflow]:
+    """Return all workflows ordered from newest to oldest."""
+
+    statement = select(Workflow).order_by(
+        Workflow.created_at.desc(),
+    )
+
+    return list(database_session.scalars(statement).all())
+
+
+def get_workflows_by_uploader(
+    database_session: Session,
+    uploaded_by: int,
+) -> list[Workflow]:
+    """Return workflows belonging to documents uploaded by one user."""
+
+    statement = (
+        select(Workflow)
+        .join(
+            Document,
+            Workflow.document_id == Document.id,
+        )
+        .where(
+            Document.uploaded_by == uploaded_by,
+        )
+        .order_by(
+            Workflow.created_at.desc(),
+        )
+    )
+
+    return list(database_session.scalars(statement).all())

@@ -77,11 +77,13 @@ def create_test_document(
 ) -> Document:
     """Create a minimal analyzed document for workflow tests."""
 
+    stored_file_name = f"workflow-test-stored-{uploaded_by}.txt"
+
     document = Document(
         uploaded_by=uploaded_by,
         original_file_name="workflow-test.txt",
-        stored_file_name="workflow-test-stored.txt",
-        file_path="uploads/workflow-test-stored.txt",
+        stored_file_name=stored_file_name,
+        file_path=f"uploads/{stored_file_name}",
         mime_type="text/plain",
         file_size=100,
         document_type=DocumentType.INVOICE,
@@ -620,3 +622,172 @@ def test_admin_can_view_another_users_workflow(
 
     assert response.status_code == 200
     assert response.json()["id"] == workflow.id
+
+
+
+def test_employee_list_workflows_returns_only_own_workflows(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """Employees should only see workflows for their own documents."""
+
+    employee, employee_token = create_test_user_and_token(
+        client,
+        db_session,
+        name="Workflow List Employee",
+        email="workflow-list-employee@example.com",
+        role=UserRole.EMPLOYEE,
+    )
+
+    other_employee, _ = create_test_user_and_token(
+        client,
+        db_session,
+        name="Other Workflow Employee",
+        email="other-workflow-list-employee@example.com",
+        role=UserRole.EMPLOYEE,
+    )
+
+    own_document = create_test_document(
+        db_session,
+        uploaded_by=employee.id,
+    )
+
+    other_document = create_test_document(
+        db_session,
+        uploaded_by=other_employee.id,
+    )
+
+    own_workflow = create_test_workflow(
+        db_session,
+        document_id=own_document.id,
+    )
+
+    other_workflow = create_test_workflow(
+        db_session,
+        document_id=other_document.id,
+    )
+
+    response = client.get(
+        "/workflows",
+        headers={
+            "Authorization": f"Bearer {employee_token}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    workflow_ids = {
+        workflow["id"]
+        for workflow in response.json()
+    }
+
+    assert own_workflow.id in workflow_ids
+    assert other_workflow.id not in workflow_ids
+
+
+def test_manager_list_workflows_returns_all_workflows(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """Managers should be able to see workflows from all users."""
+
+    employee, _ = create_test_user_and_token(
+        client,
+        db_session,
+        name="Manager List Employee",
+        email="manager-list-employee@example.com",
+        role=UserRole.EMPLOYEE,
+    )
+
+    _, manager_token = create_test_user_and_token(
+        client,
+        db_session,
+        name="Workflow List Manager",
+        email="workflow-list-manager@example.com",
+        role=UserRole.MANAGER,
+    )
+
+    employee_document = create_test_document(
+        db_session,
+        uploaded_by=employee.id,
+    )
+
+    employee_workflow = create_test_workflow(
+        db_session,
+        document_id=employee_document.id,
+    )
+
+    response = client.get(
+        "/workflows",
+        headers={
+            "Authorization": f"Bearer {manager_token}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    workflow_ids = {
+        workflow["id"]
+        for workflow in response.json()
+    }
+
+    assert employee_workflow.id in workflow_ids
+
+
+def test_admin_list_workflows_returns_all_workflows(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """Admins should be able to see workflows from all users."""
+
+    employee, _ = create_test_user_and_token(
+        client,
+        db_session,
+        name="Admin List Employee",
+        email="admin-list-employee@example.com",
+        role=UserRole.EMPLOYEE,
+    )
+
+    _, admin_token = create_test_user_and_token(
+        client,
+        db_session,
+        name="Workflow List Admin",
+        email="workflow-list-admin@example.com",
+        role=UserRole.ADMIN,
+    )
+
+    employee_document = create_test_document(
+        db_session,
+        uploaded_by=employee.id,
+    )
+
+    employee_workflow = create_test_workflow(
+        db_session,
+        document_id=employee_document.id,
+    )
+
+    response = client.get(
+        "/workflows",
+        headers={
+            "Authorization": f"Bearer {admin_token}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    workflow_ids = {
+        workflow["id"]
+        for workflow in response.json()
+    }
+
+    assert employee_workflow.id in workflow_ids
+
+
+def test_list_workflows_requires_authentication(
+    client: TestClient,
+) -> None:
+    """Workflow listing should require authentication."""
+
+    response = client.get("/workflows")
+
+    assert response.status_code == 401
