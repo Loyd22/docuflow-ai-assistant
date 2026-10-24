@@ -1,0 +1,37 @@
+/* Shared tables keep overflow inside the panel at narrow widths. */
+:is(.document-table-wrapper, .workflow-table-wrapper, .audit-table-wrapper) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+:is(.document-table, .workflow-table, .audit-table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+:is(.document-table, .workflow-table, .audit-table) :is(th, td) {
+  padding: 18px 20px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  line-height: 1.5;
+}
+:is(.document-table, .workflow-table, .audit-table) th {
+  padding-block: 14px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--color-background);
+  white-space: nowrap;
+}
+:is(.document-table, .workflow-table, .audit-table) tbody tr:last-child td { border-bottom: 0; }
+:is(.document-table, .workflow-table, .audit-table) tbody tr:hover { background: #fafbfe; }
+:is(.document-table, .workflow-table, .audit-table) td { min-width: 90px; }
+:is(.document-table, .workflow-table) td:last-child { min-width: 245px; }
+:is(.document-table-wrapper, .workflow-table-wrapper, .audit-table-wrapper):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

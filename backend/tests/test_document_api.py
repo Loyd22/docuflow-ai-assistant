@@ -1022,7 +1022,7 @@ def test_employee_cannot_view_another_users_document_details(
     assert response.json()["detail"] == ("You are not allowed to view this document.")
 
 
-def test_manager_can_view_another_users_document_details(
+def test_manager_cannot_view_unassigned_document_without_workflow(
     client: TestClient,
     db_session: Session,
     tmp_path: Path,
@@ -1078,8 +1078,10 @@ def test_manager_can_view_another_users_document_details(
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["id"] == document_id
+    # The document has no workflow, so the manager has no review access.
+    assert response.status_code == 403
+
+    assert response.json()["detail"] == ("You are not allowed to view this document.")
 
 
 def test_admin_can_view_another_users_document_details(

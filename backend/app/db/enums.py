@@ -97,3 +97,19 @@ class AuditAction(StrEnum):
     WORKFLOW_APPROVED = "workflow_approved"
     WORKFLOW_REJECTED = "workflow_rejected"
     WORKFLOW_INFORMATION_REQUESTED = "workflow_information_requested"
+
+    # Track manual-review decisions separately from approvals.
+    WORKFLOW_REVIEW_RESOLVED = "workflow_review_resolved"
+    WORKFLOW_REVIEW_REJECTED = "workflow_review_rejected"
+    WORKFLOW_REVIEW_INFORMATION_REQUESTED = "workflow_review_information_requested"
+
+    # Record when an employee answers an information request.
+    WORKFLOW_INFORMATION_RESPONDED = "workflow_information_responded"
+
+
+class ReviewOutcome(StrEnum):
+    """Possible outcomes of a manual workflow review."""
+
+    RESOLVED = "resolved"
+    REJECTED = "rejected"
+    INFORMATION_REQUESTED = "information_requested"

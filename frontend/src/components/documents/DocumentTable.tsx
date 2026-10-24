@@ -1,3 +1,4 @@
+
 import type { Document } from "../../types/document";
 
 import "./DocumentTable.css";
@@ -8,13 +9,18 @@ type DocumentTableProps = {
   processingDocumentId: number | null;
   analyzingDocumentId: number | null;
   indexingDocumentId: number | null;
+  viewingDocumentId: number | null;
+  downloadingDocumentId: number | null;
 
   onProcess: (documentId: number) => void;
   onAnalyze: (documentId: number) => void;
   onIndex: (documentId: number) => void;
   onAsk: (documentId: number) => void;
+  onViewOriginal: (documentId: number) => void;
+  onDownloadOriginal: (documentId: number) => void;
 };
 
+// Display file sizes in readable units.
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -27,6 +33,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Convert database values into readable labels.
 function formatLabel(value: string): string {
   return value
     .replaceAll("_", " ")
@@ -35,6 +42,7 @@ function formatLabel(value: string): string {
     );
 }
 
+// Convert timestamps into readable dates.
 function formatDate(value: string): string {
   return new Date(value).toLocaleString();
 }
@@ -44,23 +52,27 @@ function DocumentTable({
   processingDocumentId,
   analyzingDocumentId,
   indexingDocumentId,
+  viewingDocumentId,
+  downloadingDocumentId,
   onProcess,
   onAnalyze,
   onIndex,
   onAsk,
+  onViewOriginal,
+  onDownloadOriginal,
 }: DocumentTableProps) {
   return (
-    <div className="document-table-wrapper">
+    <div className="document-table-wrapper" role="region" aria-label="Documents table" tabIndex={0}>
       <table className="document-table">
         <thead>
           <tr>
-            <th>File</th>
-            <th>Type</th>
-            <th>Status</th>
-            <th>RAG</th>
-            <th>Size</th>
-            <th>Uploaded</th>
-            <th>Actions</th>
+            <th scope="col">File</th>
+            <th scope="col">Type</th>
+            <th scope="col">Status</th>
+            <th scope="col">RAG</th>
+            <th scope="col">Size</th>
+            <th scope="col">Uploaded</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
 
@@ -75,6 +87,12 @@ function DocumentTable({
             const isIndexing =
               indexingDocumentId === document.id;
 
+            const isViewing =
+              viewingDocumentId === document.id;
+
+            const isDownloading =
+              downloadingDocumentId === document.id;
+
             const canProcess =
               document.status === "uploaded";
 
@@ -85,27 +103,29 @@ function DocumentTable({
               document.status === "analyzed" &&
               !document.is_indexed;
 
-            const canAsk =
-              document.is_indexed;
+            const canAsk = document.is_indexed;
+
+            // The backend supports inline PDF and TXT previews.
+            const canViewOriginal = /\.(pdf|txt)$/i.test(
+              document.original_file_name,
+            );
 
             return (
               <tr key={document.id}>
-                <td>
-                  {document.original_file_name}
-                </td>
+                <td className="document-file-name">{document.original_file_name}</td>
 
                 <td>
                   {formatLabel(document.document_type)}
                 </td>
 
                 <td>
-                  <span className="status-badge">
+                  <span className={`status-badge status-badge-${document.status}`}>
                     {formatLabel(document.status)}
                   </span>
                 </td>
 
                 <td>
-                  <span className="status-badge">
+                  <span className={`status-badge ${document.is_indexed ? "status-badge-indexed" : "status-badge-neutral"}`}>
                     {document.is_indexed
                       ? "Indexed"
                       : "Not Indexed"}
@@ -123,71 +143,90 @@ function DocumentTable({
                 <td>
                   <div className="document-actions">
                     {canProcess && (
-                        <button
+                      <button
                         type="button"
-                        className="document-action-button"
+                        className="document-action-button document-action-primary"
                         onClick={() =>
-                            onProcess(document.id)
+                          onProcess(document.id)
                         }
                         disabled={isProcessing}
-                        >
+                      >
                         {isProcessing
-                            ? "Processing..."
-                            : "Process"}
-                        </button>
+                          ? "Processing..."
+                          : "Process"}
+                      </button>
                     )}
 
                     {canAnalyze && (
-                        <button
+                      <button
                         type="button"
-                        className="document-action-button"
+                        className="document-action-button document-action-primary"
                         onClick={() =>
-                            onAnalyze(document.id)
+                          onAnalyze(document.id)
                         }
                         disabled={isAnalyzing}
-                        >
+                      >
                         {isAnalyzing
-                            ? "Analyzing..."
-                            : "Analyze"}
-                        </button>
+                          ? "Analyzing..."
+                          : "Analyze"}
+                      </button>
                     )}
 
                     {canIndex && (
-                        <button
+                      <button
                         type="button"
-                        className="document-action-button"
+                        className="document-action-button document-action-primary"
                         onClick={() =>
-                            onIndex(document.id)
+                          onIndex(document.id)
                         }
                         disabled={isIndexing}
-                        >
+                      >
                         {isIndexing
-                            ? "Indexing..."
-                            : "Index"}
-                        </button>
+                          ? "Indexing..."
+                          : "Index"}
+                      </button>
                     )}
 
                     {canAsk && (
-                        <button
+                      <button
+                        type="button"
+                        className="document-action-button document-action-primary"
+                        onClick={() =>
+                          onAsk(document.id)
+                        }
+                      >
+                        Ask
+                      </button>
+                    )}
+
+                    {canViewOriginal && (
+                      <button
                         type="button"
                         className="document-action-button"
                         onClick={() =>
-                            onAsk(document.id)
+                          onViewOriginal(document.id)
                         }
-                        >
-                        Ask
-                        </button>
+                        disabled={isViewing}
+                      >
+                        {isViewing
+                          ? "Opening..."
+                          : "View Original"}
+                      </button>
                     )}
 
-                    {!canProcess &&
-                        !canAnalyze &&
-                        !canIndex &&
-                        !canAsk && (
-                        <span className="action-unavailable">
-                            —
-                        </span>
-                        )}
-                    </div>
+                    <button
+                      type="button"
+                      className="document-action-button"
+                      onClick={() =>
+                        onDownloadOriginal(document.id)
+                      }
+                      disabled={isDownloading}
+                    >
+                      {isDownloading
+                        ? "Downloading..."
+                        : "Download Original"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             );

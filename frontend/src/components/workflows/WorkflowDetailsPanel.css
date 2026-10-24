@@ -1,0 +1,167 @@
+
+.workflow-details-panel {
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.workflow-details-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.workflow-details-header h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 20px;
+}
+
+.workflow-details-header p {
+  margin: 6px 0 0;
+  color: var(--color-muted);
+}
+
+.workflow-details-close {
+  padding: 8px 12px;
+  color: #374151;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.workflow-details-close:hover {
+  background: var(--color-background);
+}
+
+.workflow-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.workflow-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.workflow-detail-field span {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.workflow-detail-field strong {
+  color: var(--color-text);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+/* Keep the history component inside the same details panel. */
+.workflow-details-panel .workflow-history-panel {
+  margin-top: 24px;
+  padding: 20px 0 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0;
+}
+
+@media (max-width: 640px) {
+  .workflow-details-panel {
+    padding: 16px;
+  }
+
+  .workflow-details-header {
+    flex-direction: column;
+  }
+
+  .workflow-details-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+
+/* Separate document information from workflow information. */
+.workflow-document-details {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-border);
+}
+
+.workflow-document-details h4 {
+  margin: 0 0 20px;
+  color: var(--color-text);
+  font-size: 16px;
+}
+
+/* Display the AI-generated document summary. */
+.workflow-document-summary {
+  margin-top: 24px;
+  padding: 16px;
+  border-radius: var(--radius-sm);
+  background: var(--color-background);
+}
+
+.workflow-document-summary h5 {
+  margin: 0 0 8px;
+  color: #374151;
+  font-size: 14px;
+}
+
+.workflow-document-summary p {
+  margin: 0;
+  color: #4b5563;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Display document retrieval errors clearly. */
+.workflow-error-message {
+  padding: 12px;
+  color: #991b1b;
+  background: #fee2e2;
+  border-radius: var(--radius-sm);
+}
+
+/* Keep original-document buttons spaced correctly. */
+.workflow-document-details .workflow-document-section {
+  margin-top: 24px;
+}
+
+.workflow-document-details .document-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+
+/* Highlight the next available workflow action. */
+.workflow-details-actions {
+  margin-top: 24px;
+  padding: 20px;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.workflow-details-actions h4 {
+  margin: 0 0 8px;
+  color: var(--color-text);
+}
+
+.workflow-details-actions p {
+  margin: 0 0 16px;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.workflow-details-actions .workflow-review-button {
+  cursor: pointer;
+}

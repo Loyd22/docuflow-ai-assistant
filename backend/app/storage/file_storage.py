@@ -48,3 +48,32 @@ def save_uploaded_file(
             destination_file.write(chunk)
 
     return destination_path
+
+
+def get_stored_file_path(stored_file_name: str) -> Path:
+    """Return a safely validated path to an uploaded file."""
+
+    # Stored filenames must be simple filenames, not paths.
+    if (
+        not stored_file_name
+        or stored_file_name != Path(stored_file_name).name
+        or "/" in stored_file_name
+        or "\\" in stored_file_name
+    ):
+        raise ValueError("Invalid stored file name.")
+
+    # Find the upload directory's absolute location.
+    upload_directory = UPLOAD_DIRECTORY.resolve()
+
+    # Resolve the requested file's real location.
+    file_path = (upload_directory / stored_file_name).resolve()
+
+    # Prevent reading files outside the upload directory.
+    if not file_path.is_relative_to(upload_directory):
+        raise ValueError("Invalid stored file path.")
+
+    # Only allow existing regular files.
+    if not file_path.is_file():
+        raise FileNotFoundError("Original document file not found.")
+
+    return file_path

@@ -49,6 +49,22 @@ def get_workflow_by_id(
     return database_session.get(Workflow, workflow_id)
 
 
+def get_workflow_for_update(
+    database_session: Session,
+    workflow_id: int,
+) -> Workflow | None:
+    """Lock a workflow row until the current transaction finishes."""
+
+    statement = (
+        select(Workflow)
+        .where(Workflow.id == workflow_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+    return database_session.scalar(statement)
+
+
 def get_workflow_by_document_id(
     database_session: Session,
     document_id: int,
@@ -66,14 +82,22 @@ def update_workflow_status(
     database_session: Session,
     workflow: Workflow,
     status: WorkflowStatus,
+    *,
+    commit: bool = True,
 ) -> Workflow:
-    """Update and persist a workflow's current status."""
+    """Update workflow status, optionally deferring the commit."""
 
     workflow.current_status = status
 
     database_session.add(workflow)
-    database_session.commit()
-    database_session.refresh(workflow)
+
+    if commit:
+        # Save immediately for existing callers.
+        database_session.commit()
+        database_session.refresh(workflow)
+    else:
+        # Let the service commit all related changes together.
+        database_session.flush()
 
     return workflow
 

@@ -1,239 +1,313 @@
-import {
-  useEffect,
-  useState,
-} from "react";
+
+import { useEffect, useState } from "react";
 import axios from "axios";
+import { Link } from "react-router-dom";
 
 import { getDashboardSummary } from "../api/dashboardApi";
+import { useAuth } from "../auth/useAuth";
+import RecentWorkflows from "../components/dashboard/RecentWorkflows";
 import SummaryCard from "../components/dashboard/SummaryCard";
+import ShellIcon from "../layouts/ShellIcon";
+
 import type { DashboardSummary } from "../types/dashboard";
 
 import "./DashboardPage.css";
 
+// Convert technical status names into readable labels.
+function formatLabel(value: string): string {
+  const labels: Record<string, string> = {
+    ai_processing: "AI Processing",
+    ai_processing_failed: "AI Processing Failed",
+    sop: "Standard Operating Procedure (SOP)",
+    hr_form: "HR Form",
+  };
+  if (labels[value]) return labels[value];
+
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) =>
+      character.toUpperCase(),
+    );
+}
+
 function DashboardPage() {
-  const [summary, setSummary] = useState<DashboardSummary | null>(
-    null,
-  );
+  const { user } = useAuth();
+
+  const [summary, setSummary] =
+    useState<DashboardSummary | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
 
-  const [errorMessage, setErrorMessage] = useState<string | null>(
-    null,
-  );
+  const [errorMessage, setErrorMessage] =
+    useState<string | null>(null);
 
+  // Determine which dashboard experience to display.
+  const role = String(user?.role ?? "").toLowerCase();
+
+  const isManagerOrAdmin =
+    role === "manager" || role === "admin";
+
+  // Retrieve dashboard metrics from FastAPI.
   useEffect(() => {
+    let isActive = true;
+
     async function loadDashboard() {
       try {
-        const dashboardSummary = await getDashboardSummary();
+        const result = await getDashboardSummary();
 
-        setSummary(dashboardSummary);
-      } catch (error) {
-        if (axios.isAxiosError(error)) {
-          const detail = error.response?.data?.detail;
-
-          if (typeof detail === "string") {
-            setErrorMessage(detail);
-          } else {
-            setErrorMessage("Unable to load dashboard data.");
-          }
-        } else {
-          setErrorMessage("Unable to load dashboard data.");
+        if (isActive) {
+          setSummary(result);
+          setErrorMessage(null);
         }
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        const detail = axios.isAxiosError(error)
+          ? error.response?.data?.detail
+          : null;
+
+        setErrorMessage(
+          typeof detail === "string"
+            ? detail
+            : "Unable to load dashboard data.",
+        );
       } finally {
-        setIsLoading(false);
+        if (isActive) {
+          setIsLoading(false);
+        }
       }
     }
 
-    loadDashboard();
+    void loadDashboard();
+
+    return () => {
+      isActive = false;
+    };
   }, []);
 
   if (isLoading) {
     return (
-      <section>
+      <section className="dashboard-page">
         <h2>Dashboard</h2>
-        <p>Loading dashboard...</p>
+        <p className="dashboard-state" role="status">Loading dashboard...</p>
       </section>
     );
   }
 
   if (errorMessage) {
     return (
-      <section>
+      <section className="dashboard-page">
         <h2>Dashboard</h2>
-
-        <p role="alert">
-          {errorMessage}
-        </p>
+        <p className="dashboard-state dashboard-state-error" role="alert">{errorMessage}</p>
       </section>
     );
   }
 
   if (!summary) {
     return (
-      <section>
+      <section className="dashboard-page">
         <h2>Dashboard</h2>
-        <p>No dashboard data is available.</p>
+        <p className="dashboard-state">No dashboard data is available.</p>
       </section>
     );
   }
 
+  const workflowCounts = summary.workflows_by_status;
+  const documentCounts = summary.documents_by_status;
+
+  // These are summary totals, not necessarily assigned-user counts.
+  const requiresManagerAction =
+    workflowCounts.needs_review +
+    workflowCounts.pending_approval;
+
+  const documentsByStatus = Object.entries(
+    documentCounts,
+  );
+
+  const documentsByType = Object.entries(
+    summary.documents_by_type,
+  );
+
   return (
     <section className="dashboard-page">
       <div className="dashboard-heading">
-        <h2>Dashboard</h2>
+        <div>
+          <h2>
+            {isManagerOrAdmin
+              ? "Manager Dashboard"
+              : "Document Dashboard"}
+          </h2>
 
-        <p>
-          Overview of DocuFlow documents and workflows.
+          <p>
+            {isManagerOrAdmin
+              ? "Monitor document approvals, manual reviews, and workflow progress."
+              : "Monitor your document processing and workflow progress."}
+          </p>
+        </div>
+
+        <div className="dashboard-heading-actions">
+          <Link
+            to="/workflows"
+            className="dashboard-primary-link"
+          >
+            View Workflows
+          </Link>
+
+          <Link
+            to="/documents"
+            className="dashboard-secondary-link"
+          >
+            View Documents
+          </Link>
+        </div>
+      </div>
+
+      {isManagerOrAdmin && (
+        <section className="dashboard-section">
+          <div className="dashboard-section-heading">
+            <h3>Workflow Priorities</h3>
+            <p className="dashboard-section-note">
+              Overall workflow counts, not assignments to you.
+            </p>
+          </div>
+          <div className="dashboard-priority-grid">
+            <SummaryCard label="Pending Approval" value={workflowCounts.pending_approval} href="/workflows?status=pending_approval"
+              icon={<ShellIcon name="audit" />} tone="blue"
+              description="Awaiting an approval decision." />
+            <SummaryCard label="Needs Manual Review" value={workflowCounts.needs_review} href="/workflows?status=needs_review"
+              icon={<ShellIcon name="documents" />} tone="amber"
+              description="Requiring human verification." />
+            <SummaryCard label="Needs Information" value={workflowCounts.needs_information} href="/workflows?status=needs_information"
+              icon={<ShellIcon name="workflows" />} tone="violet"
+              description="Awaiting additional information; excluded from the action total." />
+            <SummaryCard label="Total Requiring Action" value={requiresManagerAction}
+              icon={<ShellIcon name="dashboard" />} tone="blue" emphasis
+              description="Pending approvals + manual reviews." />
+          </div>
+        </section>
+      )}
+
+      {summary.total_documents === 0 && summary.total_workflows === 0 && (
+        <p className="dashboard-state" role="status">
+          No documents or workflows yet. Counts will appear here as documents are processed.
         </p>
-      </div>
+      )}
 
-      <div className="summary-grid">
-        <SummaryCard
-          label="Total Documents"
-          value={summary.total_documents}
-        />
-
-        <SummaryCard
-          label="Total Workflows"
-          value={summary.total_workflows}
-        />
-      </div>
-
+      {/* Summary metrics for all authenticated roles. */}
       <section className="dashboard-section">
-        <h3>Documents by Status</h3>
+        <h3>Overall Summary</h3>
 
-        <div className="metric-grid">
+        <div className="summary-grid">
           <SummaryCard
-            label="Uploaded"
-            value={summary.documents_by_status.uploaded}
+            label="Total Documents"
+            value={summary.total_documents}
+            icon={<ShellIcon name="documents" />}
           />
 
           <SummaryCard
-            label="Processing"
-            value={summary.documents_by_status.processing}
+            label="Total Workflows"
+            value={summary.total_workflows}
+            icon={<ShellIcon name="workflows" />}
           />
 
-          <SummaryCard
-            label="Text Extracted"
-            value={summary.documents_by_status.text_extracted}
-          />
-
-          <SummaryCard
-            label="Processing Failed"
-            value={summary.documents_by_status.processing_failed}
-          />
-
-          <SummaryCard
-            label="AI Processing"
-            value={summary.documents_by_status.ai_processing}
-          />
-
-          <SummaryCard
-            label="Analyzed"
-            value={summary.documents_by_status.analyzed}
-          />
-
-          <SummaryCard
-            label="AI Processing Failed"
-            value={summary.documents_by_status.ai_processing_failed}
-          />
         </div>
       </section>
 
+      {/* Employees can also monitor workflow statuses. */}
+      {!isManagerOrAdmin && (
+        <section className="dashboard-section">
+          <h3>Workflow Progress</h3>
+
+          <div className="metric-grid">
+            <SummaryCard
+              label="Needs Manual Review"
+              value={workflowCounts.needs_review} href="/workflows?status=needs_review"
+            />
+
+            <SummaryCard
+              label="Needs Information"
+              value={workflowCounts.needs_information} href="/workflows?status=needs_information"
+            />
+
+            <SummaryCard
+              label="Pending Approval"
+              value={workflowCounts.pending_approval} href="/workflows?status=pending_approval"
+            />
+
+          </div>
+
+          <p className="dashboard-section-note">
+            Open Workflows to check the details and
+            respond to information requests.
+          </p>
+
+          <Link
+            to="/workflows"
+            className="dashboard-text-link"
+          >
+            View Workflow Details →
+          </Link>
+        </section>
+      )}
+
+      {isManagerOrAdmin && <RecentWorkflows />}
+
+      {/* Display final workflow outcomes. */}
       <section className="dashboard-section">
-        <h3>Workflows by Status</h3>
+        <h3>Workflow Outcomes</h3>
 
         <div className="metric-grid">
           <SummaryCard
-            label="Needs Review"
-            value={summary.workflows_by_status.needs_review}
-          />
-
-          <SummaryCard
-            label="Needs Information"
-            value={summary.workflows_by_status.needs_information}
-          />
-
-          <SummaryCard
-            label="Pending Approval"
-            value={summary.workflows_by_status.pending_approval}
-          />
-
-          <SummaryCard
             label="Approved"
-            value={summary.workflows_by_status.approved}
+            value={workflowCounts.approved}
           />
 
           <SummaryCard
             label="Rejected"
-            value={summary.workflows_by_status.rejected}
+            value={workflowCounts.rejected}
           />
 
           <SummaryCard
             label="Completed"
-            value={summary.workflows_by_status.completed}
+            value={workflowCounts.completed}
           />
         </div>
       </section>
 
+      {/* Keep the existing processing metrics. */}
+      <section className="dashboard-section">
+        <h3>Document Processing</h3>
+
+        <p className="dashboard-section-note">
+          Monitor documents through extraction and AI
+          analysis.
+        </p>
+
+        <div className="metric-grid">
+          {documentsByStatus.map(([status, count]) => (
+            <SummaryCard
+              key={status}
+              label={formatLabel(status)}
+              value={count}
+            />
+          ))}
+        </div>
+      </section>
+
+      {/* Display all supported document types. */}
       <section className="dashboard-section">
         <h3>Documents by Type</h3>
 
         <div className="metric-grid">
-          <SummaryCard
-            label="Invoice"
-            value={summary.documents_by_type.invoice}
-          />
-
-          <SummaryCard
-            label="Contract"
-            value={summary.documents_by_type.contract}
-          />
-
-          <SummaryCard
-            label="SOP"
-            value={summary.documents_by_type.sop}
-          />
-
-          <SummaryCard
-            label="HR Form"
-            value={summary.documents_by_type.hr_form}
-          />
-
-          <SummaryCard
-            label="Purchase Request"
-            value={summary.documents_by_type.purchase_request}
-          />
-
-          <SummaryCard
-            label="Policy"
-            value={summary.documents_by_type.policy}
-          />
-
-          <SummaryCard
-            label="Business Report"
-            value={summary.documents_by_type.business_report}
-          />
-
-          <SummaryCard
-            label="Support Ticket"
-            value={summary.documents_by_type.support_ticket}
-          />
-
-          <SummaryCard
-            label="Digital Form"
-            value={summary.documents_by_type.digital_form}
-          />
-
-          <SummaryCard
-            label="Memo"
-            value={summary.documents_by_type.memo}
-          />
-
-          <SummaryCard
-            label="Unknown"
-            value={summary.documents_by_type.unknown}
-          />
+          {documentsByType.map(([type, count]) => (
+            <SummaryCard
+              key={type}
+              label={formatLabel(type)}
+              value={count}
+            />
+          ))}
         </div>
       </section>
     </section>

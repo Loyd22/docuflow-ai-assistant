@@ -6,6 +6,10 @@ from app.db.models.document import Document
 from app.db.models.document_chunk import DocumentChunk
 from app.db.models.user import User
 from app.db.models.workflow import Workflow
+from app.db.models.workflow_information_request import (
+    WorkflowInformationRequest,
+)
+from app.db.models.workflow_review import WorkflowReview
 
 __all__ = [
     "Approval",
@@ -14,4 +18,6 @@ __all__ = [
     "DocumentChunk",
     "User",
     "Workflow",
+    "WorkflowInformationRequest",
+    "WorkflowReview",
 ]

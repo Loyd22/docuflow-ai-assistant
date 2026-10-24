@@ -27,7 +27,10 @@ function renderLoginPage(
       <MemoryRouter initialEntries={["/login"]}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/dashboard" element={<h1>Dashboard</h1>} />
+          <Route
+            path="/"
+            element={<h1>Role-based home</h1>}
+          />
         </Routes>
       </MemoryRouter>
     </AuthContext.Provider>,
@@ -40,34 +43,60 @@ describe("LoginPage", () => {
   it("renders the login form", () => {
     renderLoginPage();
 
-    expect(screen.getByRole("heading", { name: "Sign in" }))
-      .toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Welcome back" }),
+    ).toBeInTheDocument();
 
-    expect(screen.getByLabelText("Email"))
-      .toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Email"),
+    ).toBeInTheDocument();
 
-    expect(screen.getByLabelText("Password"))
-      .toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Password"),
+    ).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "Sign in" }))
-      .toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Sign in" }),
+    ).toBeEnabled();
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+  });
+
+  it("preserves required fields and email validation", async () => {
+    const user = userEvent.setup();
+    const auth = renderLoginPage();
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(auth.login).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Email")).toBeInvalid();
+    expect(screen.getByLabelText("Password")).toBeInvalid();
+    await user.type(screen.getByLabelText("Email"), "invalid-email");
+    await user.type(screen.getByLabelText("Password"), "test-password");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(auth.login).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Email")).toBeInvalid();
   });
 
   it("shows loading while authentication initializes", () => {
     renderLoginPage({ isLoading: true });
 
-    expect(screen.getByText("Loading..."))
-      .toBeInTheDocument();
-
-    expect(screen.queryByRole("button", { name: "Sign in" }))
-      .not.toBeInTheDocument();
-  });
-
-  it("redirects already authenticated users", async () => {
-    renderLoginPage({ isAuthenticated: true });
+    expect(
+      screen.getByText("Loading..."),
+    ).toBeInTheDocument();
 
     expect(
-      await screen.findByRole("heading", { name: "Dashboard" }),
+      screen.queryByRole("button", { name: "Sign in" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("redirects already authenticated users to the home route", async () => {
+    renderLoginPage({
+      isAuthenticated: true,
+    });
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Role-based home",
+      }),
     ).toBeInTheDocument();
   });
 
@@ -89,13 +118,17 @@ describe("LoginPage", () => {
       screen.getByRole("button", { name: "Sign in" }),
     );
 
+    // Verify that the login function receives the credentials.
     expect(auth.login).toHaveBeenCalledWith({
       email: "employee@example.com",
       password: "password123",
     });
 
+    // Successful login should navigate to the home route.
     expect(
-      await screen.findByRole("heading", { name: "Dashboard" }),
+      await screen.findByRole("heading", {
+        name: "Role-based home",
+      }),
     ).toBeInTheDocument();
   });
 
@@ -103,7 +136,9 @@ describe("LoginPage", () => {
     const user = userEvent.setup();
 
     renderLoginPage({
-      login: vi.fn().mockRejectedValue(new Error("Network failure")),
+      login: vi.fn().mockRejectedValue(
+        new Error("Network failure"),
+      ),
     });
 
     await user.type(
@@ -120,12 +155,14 @@ describe("LoginPage", () => {
       screen.getByRole("button", { name: "Sign in" }),
     );
 
-    expect(await screen.findByRole("alert"))
-      .toHaveTextContent("Unable to sign in.");
+    expect(
+      await screen.findByRole("alert"),
+    ).toHaveTextContent("Unable to sign in.");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Sign in" }))
-        .toBeEnabled();
+      expect(
+        screen.getByRole("button", { name: "Sign in" }),
+      ).toBeEnabled();
     });
   });
 
@@ -154,7 +191,9 @@ describe("LoginPage", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: "Signing in..." }),
+      screen.getByRole("button", {
+        name: "Signing in...",
+      }),
     ).toBeDisabled();
 
     expect(login).toHaveBeenCalledTimes(1);
@@ -200,7 +239,10 @@ describe("LoginPage", () => {
       screen.getByRole("button", { name: "Sign in" }),
     );
 
-    expect(await screen.findByRole("alert"))
-      .toHaveTextContent("Incorrect email or password.");
+    expect(
+      await screen.findByRole("alert"),
+    ).toHaveTextContent(
+      "Incorrect email or password.",
+    );
   });
 });

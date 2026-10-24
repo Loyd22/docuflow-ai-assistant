@@ -9,6 +9,7 @@ import AuditLogTable from "../components/audit-logs/AuditLogTable";
 import type { AuditLog } from "../types/auditLog";
 
 import "./AuditLogsPage.css";
+import "../styles/WorkspacePages.css";
 
 function AuditLogsPage() {
   const [auditLogs, setAuditLogs] =
@@ -74,8 +75,8 @@ function AuditLogsPage() {
       )}
 
       {isLoading ? (
-        <p>Loading audit logs...</p>
-      ) : auditLogs.length === 0 ? (
+        <p className="workspace-loading" role="status">Loading audit logs...</p>
+      ) : errorMessage ? null : auditLogs.length === 0 ? (
         <div className="empty-audit-logs">
           <h3>No audit logs yet</h3>
 

@@ -4,6 +4,7 @@ import {
 } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
+import ShellIcon from "./ShellIcon";
 
 import "./AppLayout.css";
 
@@ -15,13 +16,18 @@ function AppLayout() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <h1>DocuFlow AI</h1>
-          <p>Document Workflow System</p>
+          <span className="brand-mark"><ShellIcon name="documents" /></span>
+          <div>
+            <h1>DocuFlow AI</h1>
+            <p>Document Workflow System</p>
+          </div>
         </div>
 
-        <nav className="sidebar-nav">
+        <p className="sidebar-section-label">Workspace</p>
+        <nav className="sidebar-nav" aria-label="Main navigation">
           {canViewManagementPages && (
             <NavLink
               to="/dashboard"
@@ -29,7 +35,7 @@ function AppLayout() {
                 isActive ? "nav-link active" : "nav-link"
               }
             >
-              Dashboard
+              <ShellIcon name="dashboard" />Dashboard
             </NavLink>
           )}
 
@@ -39,7 +45,7 @@ function AppLayout() {
               isActive ? "nav-link active" : "nav-link"
             }
           >
-            Documents
+            <ShellIcon name="documents" />Documents
           </NavLink>
 
           <NavLink
@@ -48,7 +54,7 @@ function AppLayout() {
               isActive ? "nav-link active" : "nav-link"
             }
           >
-            Workflows
+            <ShellIcon name="workflows" />Workflows
           </NavLink>
 
           {canViewManagementPages && (
@@ -58,7 +64,7 @@ function AppLayout() {
                 isActive ? "nav-link active" : "nav-link"
               }
             >
-              Audit Logs
+              <ShellIcon name="audit" />Audit Logs
             </NavLink>
           )}
         </nav>
@@ -66,23 +72,30 @@ function AppLayout() {
 
       <div className="app-main">
         <header className="app-header">
-          <div>
-            <strong>{user?.name}</strong>
-            <span className="user-role">{user?.role}</span>
-          </div>
+          <div className="header-workspace">Document workspace</div>
+          <div className="header-account">
+            <span className="user-avatar" aria-hidden="true">
+              {user?.name.trim().charAt(0).toLocaleUpperCase()}
+            </span>
+            <div className="user-details">
+              <strong>{user?.name}</strong>
+              <span className="user-role">{user?.role}</span>
+            </div>
 
-          <button
-            type="button"
-            className="logout-button"
-            onClick={logout}
-          >
-            Sign out
-          </button>
+            <button
+              type="button"
+              className="logout-button"
+              onClick={logout}
+            >
+              <ShellIcon name="logout" />
+              Sign out
+            </button>
+          </div>
         </header>
 
-        <div className="page-content">
+        <main className="page-content" id="main-content" tabIndex={-1}>
           <Outlet />
-        </div>
+        </main>
       </div>
     </div>
   );

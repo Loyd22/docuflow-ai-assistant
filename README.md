@@ -16,11 +16,13 @@ Completed:
 * Phase 10 — RAG / Document Q&A
 * Phase 11 — Dashboard & Audit Logs
 
-Implemented and in final verification:
+Completed implementation (final integration verification and commit pending):
 * Phase 12 — Frontend
+* Phase 12.5 — MVP Workflow Completion, Manager Experience & UI Redesign
 
 Next:
-* Phase 13 — Testing
+* Phase 13 — Testing & Reliability
+* Phase 14 — Deployment / DevOps
 ---
 ## Technology Stack
 ### Frontend
@@ -121,7 +123,7 @@ Next:
 ## Project Architecture
 DocuFlow currently follows a modular monolith structure.
 
-Phase 12 adds a separate React frontend that consumes the FastAPI application over HTTP.
+Phase 12 adds a separate React frontend that consumes the FastAPI application over HTTP. Phase 12.5 adds full human-in-the-loop review paths, document access controls, workflow history, and a refreshed role-aware UI.
 
 ```text
 frontend/
@@ -130,6 +132,7 @@ frontend/
 │   │   ├── auditLogApi.ts
 │   │   ├── client.ts
 │   │   ├── dashboardApi.ts
+│   │   ├── recentWorkflowsApi.ts
 │   │   ├── documentApi.ts
 │   │   └── workflowApi.ts
 │   ├── auth/
@@ -139,7 +142,10 @@ frontend/
 │   │   ├── documents/
 │   │   ├── layout/
 │   │   └── workflows/
+│   ├── layouts/
 │   ├── pages/
+│   ├── styles/
+│   ├── utils/
 │   ├── types/
 │   ├── App.tsx
 │   └── main.tsx
@@ -423,12 +429,15 @@ A new development phase does not automatically require a new folder.
 A new package is introduced when the code represents a distinct responsibility that should remain isolated from the existing layers.
 ---
 ## Database Models
-The initial database schema contains:
+The database includes these primary tables:
 * `users`
 * `documents`
 * `workflows`
 * `approvals`
+* `workflow_reviews`
+* `workflow_information_requests`
 * `audit_logs`
+* `document_chunks`
 Database schema changes are managed through Alembic migrations.
 Do not use `Base.metadata.create_all()` as the normal development or production migration strategy.
 The automated integration-test environment may use `create_all()` and `drop_all()` to create and remove an isolated disposable test schema.
@@ -1754,7 +1763,7 @@ JWT_SECRET_KEY=your_secure_random_secret
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-5.6-luna
+OPENAI_MODEL=your_configured_openai_model
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_EMBEDDING_DIMENSIONS=1536
 TEST_DATABASE_URL=postgresql+psycopg://user:password@localhost:5434/docuflow_test
@@ -2231,7 +2240,7 @@ Workflow Document Review          ✅
 Audit Logs                        ✅
 ```
 
-The next major phase is Phase 13 — Testing, after final Phase 12 regression verification and documentation.
+The next major phase is Phase 13 — Testing & Reliability, following completion of the Phase 12.5 workflow and UI work.
 ---
 ## Supported Document Types
 DocuFlow is designed to support:
@@ -2272,8 +2281,9 @@ Phase 8  — Business Rules                      ✅ Completed
 Phase 9  — Workflow & Approval                 ✅ Completed
 Phase 10 — RAG / Document Q&A                 ✅ Completed
 Phase 11 — Dashboard & Audit Logs              ✅ Completed
-Phase 12 — Frontend                             ← Next
-Phase 13 — Testing
+Phase 12 — Frontend                            ✅ Implemented
+Phase 12.5 — MVP Workflow Completion & UI       ✅ Implemented
+Phase 13 — Testing & Reliability                ← Next
 Phase 14 — Deployment / DevOps
 ```
 The project is developed incrementally, with each phase implemented, tested, reviewed, documented, and committed before the next major phase begins.
@@ -3104,10 +3114,128 @@ npm run build
 Before the Phase 12 commit, run the complete backend regression suite and final lint/build commands and record the exact full-suite result.
 
 ### Phase 12 Status
-The Phase 12 feature implementation is complete and is in final regression verification.
+Phase 12 frontend implementation is complete. Phase 12.5 adds the integrated human-review flows and a redesigned UI; see the Phase 12.5 summary below. Final end-to-end regression and deployment readiness remain Phase 13 work.
 
 Next:
 
 ```text
 Phase 13 — Testing
 ```
+
+---
+
+## Phase 12.5 — MVP Workflow Completion & UI Redesign (October 2026)
+
+Phase 12.5 closes key human-in-the-loop gaps identified after the initial frontend implementation. It builds on the original phases rather than replacing the document-processing, AI, business-rule, RAG, or security layers. **Implementation is complete according to the development handoff; final cross-role browser regression, documentation review, and commit are separate closing tasks.**
+
+### Implemented Workflow Capabilities
+
+- **Manual review resolution:** Managers/admins can resolve invoice reviews using a verified nonnegative total, reject a review, or request further information. A resolved invoice is re-evaluated by the existing deterministic business-rule engine. Totals above the current **20,000** threshold go to `pending_approval`; totals at or below it go to `completed`.
+- **Formal approval:** Authorized reviewers can approve, reject, or request information from `pending_approval` workflows. Rejections and information requests require a meaningful explanation. Approval comments may be omitted.
+- **Employee information response:** A request produces `needs_information`; the owner can respond, after which the workflow returns to the requesting review stage (`needs_review` or `pending_approval`).
+- **Workflow decision history:** The details panel shows approval decisions, manual-review decisions, and employee information responses in a chronological history.
+- **Original-file access:** Authorized users can open/download the uploaded original via server-side access control rather than exposing internal filesystem paths. The user interface reuses these actions in document and workflow details.
+- **Detailed review context:** Workflow details include the current status, priority, assignment, document metadata, AI summary, structured invoice fields, business-rule reason, and relevant next action.
+
+### Validation and Safety Boundaries
+
+- Employees cannot make manager/admin approval decisions and cannot read unrelated employees' documents or information requests.
+- Managers/admins must pass the centralized access policy and valid workflow-state checks before making decisions.
+- `ApprovalDecisionRequest` validates nonblank explanatory comments for rejection and information requests; the workflow service also protects that business invariant independently of HTTP parsing.
+- Manual-review comments are trimmed and required. Resolved invoice totals must be present, finite, and nonnegative; non-invoice automatic resolution is not supported in this MVP.
+- Workflow decisions use database locking and transactional persistence with related audit events. The Phase 13 reliability pass should still exercise failure recovery and concurrent requests end to end.
+- Document-processing, AI analysis, RAG indexing and Q&A retain their separate ownership restrictions; review-oriented read permissions do not grant broader mutation permissions.
+
+### Additional Workflow API Surface
+
+The existing read and approval endpoints remain available, including `GET /workflows`, `GET /workflows/{workflow_id}`, and `POST /workflows/{workflow_id}/decision`. Phase 12.5 adds or exposes these review-facing operations:
+
+```text
+POST /workflows/{workflow_id}/review
+GET  /workflows/{workflow_id}/information-request
+POST /workflows/{workflow_id}/information-response
+GET  /workflows/{workflow_id}/history
+GET  /documents/{document_id}                 # Authorized review details
+```
+
+The document routes also provide authorized access to original uploaded files. Consult the live FastAPI OpenAPI specification for the exact file viewing/downloading path and response headers; it is intentionally not guessed here.
+
+### New Backend Components
+
+```text
+app/db/models/workflow_review.py
+app/db/models/workflow_information_request.py
+app/repositories/workflow_review_repository.py
+app/repositories/workflow_information_request_repository.py
+app/services/workflow_history_service.py
+app/services/document_file_access_service.py
+app/security/                            # Centralized access policies
+```
+
+Workflow review and information-request tables were introduced through new Alembic revisions, alongside relevant workflow/audit changes. The configured development database was checked with:
+
+```text
+alembic heads   -> 8636cfbbc134 (head)
+alembic current -> 8636cfbbc134 (head)
+```
+
+These commands confirmed one migration head and that the configured database was on that revision at the time of verification. They do not replace schema or functional integration tests.
+
+### Redesigned React Frontend
+
+The frontend was redesigned in five Codex implementation stages, with a separate login-page pass:
+
+1. Shared application shell: blue sidebar, navigation, header and visual tokens.
+2. Manager/Admin dashboard: priority KPI cards for pending approval, manual review, information requests, and combined actions; other document and workflow summaries retained.
+3. Recent Workflows: authorized workflow records displayed in a compact table, without hard-coded sample business records.
+4. Documents and Workflows: consistent tables, status indicators, detail panels, human-decision controls, and workflow navigation/filtering.
+5. Responsive and accessibility polish: desktop/mobile layout, interactive states, and consistent CSS; plus a dedicated split-layout login redesign.
+
+Notable frontend components:
+
+```text
+src/components/dashboard/RecentWorkflows.tsx
+src/components/workflows/WorkflowDetailsPanel.tsx
+src/components/workflows/WorkflowAIAnalysisPanel.tsx
+src/components/workflows/WorkflowHistoryPanel.tsx
+src/components/workflows/WorkflowManualReviewPanel.tsx
+src/components/workflows/WorkflowInformationResponsePanel.tsx
+src/components/workflows/WorkflowDecisionPanel.tsx
+src/components/documents/OriginalDocumentActions.tsx
+src/layouts/AppLayout.tsx
+src/pages/LoginPage.tsx
+src/pages/DashboardPage.tsx
+src/pages/DocumentsPage.tsx
+src/pages/WorkflowsPage.tsx
+src/pages/AuditLogsPage.tsx
+```
+
+The review forms support an **embedded** mode that reuses document details loaded by the parent, preventing duplicate document fetches and duplicated review content. Both approval and manual-review forms require an explicit choice rather than silently preselecting a decision. The Cancel action closes the embedded form without closing Workflow Details.
+
+**Dashboard scope note:** Aggregate workflow counts must not be represented as tasks specifically assigned to the current manager unless the backend query filters by assignment. The existing dashboard summary endpoint has historically been restricted to managers/admins; verify any employee dashboard behavior against the live authorization contract before relying on it.
+
+### Phase 12.5 Verification and Known Boundaries
+
+- The backend had a regression run of **246 passed, 1 failed, 1 skipped**. The failure was an older test submitting a rejection with `comment=None` after the new validation required a reason. The test was updated and a subsequent run was reported successful, but its exact final counts have not been supplied for documentation.
+- A focused approval-schema check accepted valid approvals, rejections and information requests, and rejected empty/whitespace explanations as intended.
+- Ruff formatting and lint checks were exercised during closing work; record the final complete check output before claiming a verified clean release.
+- The UI redesign and manual-review edits were reported completed. Confirm the exact frontend production build, tests, and browser-based cross-role scenarios during the closing pass.
+- Automated test coverage includes workflow authorization, manual-review/service behavior, audit transactions, file access, workflow history, and frontend workflow components. Run all relevant suites again after the final Codex changes.
+- Current limitations: automated invoice resolution only; other document types can be classified and routed for manual review but do not have equivalent document-specific automated resolution rules. Text-based PDFs are supported, while scanned/image-only PDFs may require future OCR. Storage remains local and AI calls are synchronous where implemented.
+
+### Phase 12.5 Closing Checklist
+
+- [x] Implement manual review, approval, information-request/response, and history features
+- [x] Add secure original-file access and readable manager review context
+- [x] Implement the redesigned app shell, dashboard, login, and core page styles
+- [x] Confirm configured database is on the single Alembic head
+- [ ] Record final backend full-suite pass count and any skipped tests
+- [ ] Record final frontend build/lint/unit-test results after all Codex changes
+- [ ] Complete manual end-to-end employee, manager, and admin checks
+- [ ] Commit and push the reviewed Phase 12.5 branch
+
+### Next Phases
+
+**Phase 13 — Testing & Reliability:** Regression and integration tests, role/ownership checks, migrations in a fresh database, workflow edge cases, file access and security regression, error handling, concurrency/rollback, AI/RAG evaluations as appropriate, and real browser E2E checks.
+
+**Phase 14 — Deployment / DevOps:** Production configuration, secrets, database migrations, container setup, frontend/backend hosting, monitoring, backups, and release process.

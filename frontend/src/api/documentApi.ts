@@ -85,3 +85,34 @@ export async function askDocumentQuestion(
 
   return response.data;
 }
+
+
+// Retrieve an original document for browser preview.
+export async function viewOriginalDocument(
+  documentId: number,
+): Promise<Blob> {
+  const response = await apiClient.get<Blob>(
+    `/documents/${documentId}/view`,
+    {
+      responseType: "blob",
+      timeout: 30_000,
+    },
+  );
+
+  return response.data;
+}
+
+// Retrieve an original document for downloading.
+export async function downloadOriginalDocument(
+  documentId: number,
+): Promise<Blob> {
+  const response = await apiClient.get<Blob>(
+    `/documents/${documentId}/download`,
+    {
+      responseType: "blob",
+      timeout: 30_000,
+    },
+  );
+
+  return response.data;
+}

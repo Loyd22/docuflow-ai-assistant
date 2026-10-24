@@ -1,3 +1,4 @@
+
 import {
   type FormEvent,
   useState,
@@ -9,6 +10,8 @@ import {
 } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
+import ShellIcon from "../layouts/ShellIcon";
+import "./LoginPage.css";
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -21,17 +24,20 @@ function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(
-    null,
-  );
-  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [errorMessage, setErrorMessage] =
+    useState<string | null>(null);
+
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
 
   if (isLoading) {
-    return <p>Loading...</p>;
+    return <main className="login-loading"><p role="status">Loading...</p></main>;
   }
 
+  // Send authenticated users to the role-based home page.
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/" replace />;
   }
 
   async function handleSubmit(
@@ -48,7 +54,8 @@ function LoginPage() {
         password,
       });
 
-      navigate("/dashboard", {
+      // Let RoleHomeRedirect choose the correct landing page.
+      navigate("/", {
         replace: true,
       });
     } catch (error) {
@@ -69,12 +76,33 @@ function LoginPage() {
   }
 
   return (
-    <main>
-      <h1>DocuFlow AI</h1>
-      <h2>Sign in</h2>
-
-      <form onSubmit={handleSubmit}>
-        <div>
+    <main className="login-page">
+      <section className="login-branding" aria-labelledby="login-brand-heading">
+        <div className="login-brand">
+          <span className="login-brand-mark"><ShellIcon name="documents" /></span>
+          <span>DocuFlow AI</span>
+        </div>
+        <div className="login-brand-content">
+          <h1 id="login-brand-heading">Intelligent Document Workflows</h1>
+          <p>Simplify document processing, automate analysis, and manage approvals in one place.</p>
+          <div className="login-illustration" aria-hidden="true">
+            <div className="login-document login-document-back" />
+            <div className="login-document login-document-front">
+              <ShellIcon name="documents" />
+              <span /><span /><span />
+              <div className="login-document-lines"><i /><i /><i /></div>
+            </div>
+            <div className="login-flow-node"><ShellIcon name="workflows" /></div>
+            <div className="login-flow-check"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" focusable="false"><path d="m5 12 4 4L19 6" /></svg></div>
+          </div>
+        </div>
+      </section>
+      <section className="login-form-panel" aria-labelledby="login-form-heading">
+        <div className="login-form-content">
+          <h2 id="login-form-heading">Welcome back</h2>
+          <p className="login-form-description">Sign in to your DocuFlow AI account.</p>
+          <form className="login-form" onSubmit={handleSubmit} aria-busy={isSubmitting}>
+        <div className="login-field">
           <label htmlFor="email">
             Email
           </label>
@@ -82,6 +110,10 @@ function LoginPage() {
           <input
             id="email"
             type="email"
+            name="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            aria-describedby={errorMessage ? "login-error" : undefined}
             value={email}
             onChange={(event) => {
               setEmail(event.target.value);
@@ -91,7 +123,7 @@ function LoginPage() {
           />
         </div>
 
-        <div>
+        <div className="login-field">
           <label htmlFor="password">
             Password
           </label>
@@ -99,6 +131,8 @@ function LoginPage() {
           <input
             id="password"
             type="password"
+            name="password"
+            aria-describedby={errorMessage ? "login-error" : undefined}
             value={password}
             onChange={(event) => {
               setPassword(event.target.value);
@@ -109,18 +143,23 @@ function LoginPage() {
         </div>
 
         {errorMessage && (
-          <p role="alert">
+          <p className="login-error" id="login-error" role="alert">
             {errorMessage}
           </p>
         )}
 
         <button
           type="submit"
+          className="login-submit"
           disabled={isSubmitting}
         >
-          {isSubmitting ? "Signing in..." : "Sign in"}
+          {isSubmitting
+            ? "Signing in..."
+            : "Sign in"}
         </button>
-      </form>
+          </form>
+        </div>
+      </section>
     </main>
   );
 }

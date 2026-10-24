@@ -1,7 +1,10 @@
 .audit-logs-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-5);
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .audit-logs-heading h2 {
@@ -11,16 +14,17 @@
 .audit-logs-heading p {
   margin: 0;
 
-  color: #6b7280;
+  color: var(--color-muted);
 }
 
 .audit-error {
-  padding: 10px 12px;
+  margin: 0;
+  padding: var(--space-4);
 
   color: #991b1b;
 
   background: #fee2e2;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .empty-audit-logs {
@@ -28,9 +32,9 @@
 
   text-align: center;
 
-  background: #ffffff;
-  border: 1px dashed #d1d5db;
-  border-radius: 10px;
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .empty-audit-logs h3 {
@@ -40,5 +44,5 @@
 .empty-audit-logs p {
   margin: 0;
 
-  color: #6b7280;
+  color: var(--color-muted);
 }

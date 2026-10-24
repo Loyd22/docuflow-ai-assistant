@@ -1,0 +1,59 @@
+/* Shared presentation for document and workflow workspaces. */
+.documents-page, .workflows-page { min-width: 0; gap: var(--space-5); font-size: 14px; line-height: 1.5; }
+.documents-page h3, .workflows-page h3 { font-size: 17px; }
+.documents-page h4, .workflows-page h4 { font-size: 14px; }
+.documents-page :is(.upload-panel, .question-panel),
+.workflows-page :is(.workflow-decision-panel, .workflow-details-panel, .workflow-history-panel) {
+  padding: var(--space-5);
+  box-shadow: var(--shadow-soft);
+  border-radius: var(--radius-lg);
+}
+.documents-page :is(button, input, textarea),
+.workflows-page :is(button, input, select, textarea) { font-size: 13px; }
+.documents-page button, .workflows-page button { min-height: 40px; font-weight: 500; }
+.documents-page :is(button, input, textarea):focus-visible,
+.workflows-page :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.documents-page button:disabled, .workflows-page button:disabled { opacity: 0.5; cursor: not-allowed; }
+.documents-page :is(.question-form, .upload-form),
+.workflows-page .workflow-decision-form { gap: var(--space-4); }
+.documents-page :is(input, textarea),
+.workflows-page :is(input, select, textarea) {
+  min-width: 0;
+  padding: 12px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.workflows-page .workflow-decision-form input { width: 100%; }
+.documents-page textarea, .workflows-page textarea { min-height: 110px; }
+.upload-form input::file-selector-button { margin-right: 12px; padding: 8px 12px; border: 0; border-radius: var(--radius-sm); background: var(--color-primary-soft); color: var(--color-primary-deep); font: inherit; cursor: pointer; }
+.documents-list-heading { flex-wrap: wrap; gap: var(--space-3); }
+.documents-page .upload-panel .error-message { color: #991b1b; }
+.documents-page .upload-panel .success-message { color: #166534; }
+.documents-page .message, .workflow-message { margin: 0; padding: var(--space-4); line-height: 1.6; }
+.workspace-loading { margin: 0; padding: var(--space-5); color: var(--color-muted); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.workflows-page .workflow-document-grid > div { min-width: 0; overflow-wrap: anywhere; }
+.workflows-page .workflow-document-text, .question-panel { overflow-wrap: anywhere; }
+.workflows-page .workflow-document-review { margin-top: var(--space-4); }
+.workflow-decision-form-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.workflow-submit-button:hover:not(:disabled), .question-form button:hover:not(:disabled) { background: var(--color-primary-deep); }
+.workflow-filters { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-4) var(--space-5); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-soft); }
+.workflow-filters label { font-weight: 600; }
+.workflow-filter-count { margin-left: auto; color: var(--color-muted); font-size: 13px; }
+.workflow-filter-note { flex-basis: 100%; margin: 0; color: var(--color-muted); }
+@media (max-width: 640px) {
+  .documents-page :is(.upload-panel, .question-panel),
+  .workflows-page :is(.workflow-decision-panel, .workflow-details-panel, .workflow-history-panel) { padding: var(--space-4); }
+  .question-panel-header, .workflow-history-header { flex-wrap: wrap; }
+  .workflow-filter-count { margin-left: 0; flex-basis: 100%; }
+  .workflow-filters select { flex: 1; max-width: 100%; }
+}
+
+:is(.documents-page, .workflows-page, .audit-logs-page) :is(h2, h3, h4, p) { overflow-wrap: anywhere; }
+:is(.workflow-decision-header, .workflow-details-header, .question-panel-header) > div { min-width: 0; }
+:is(.workflow-close-button, .workflow-details-close, .question-close-button) { flex-shrink: 0; }
+.workflow-details-panel .workflow-history-panel { box-shadow: none; }
+:is(.workflow-decision-panel, .workflow-details-panel, .question-panel) { min-width: 0; }
+.workflow-decision-form > p { margin: 0; }
+.workflow-history-panel > [role="alert"] { padding: var(--space-4); border-radius: var(--radius-sm); color: #991b1b; background: #fee2e2; }
