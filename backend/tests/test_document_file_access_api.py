@@ -529,3 +529,43 @@ def test_admin_can_download_another_users_document(
     )
 
     assert response.status_code == 200
+
+
+def test_manager_cannot_access_document_without_workflow(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """Managers cannot read another user's document without a workflow."""
+
+    # An employee uploads a document.
+    owner_token, _ = create_test_user(
+        client,
+        db_session,
+        email="no-workflow-owner@example.com",
+    )
+
+    document_id = upload_test_document(
+        client,
+        token=owner_token,
+    )
+
+    # Confirm the document has no associated workflow.
+    document = db_session.get(Document, document_id)
+    assert document is not None
+    assert document.workflow is None
+
+    # A manager attempts to access the employee's original file.
+    manager_token, _ = create_test_user(
+        client,
+        db_session,
+        email="no-workflow-manager@example.com",
+        role=UserRole.MANAGER,
+    )
+
+    response = client.get(
+        f"/documents/{document_id}/download",
+        headers=auth_headers(manager_token),
+    )
+
+    # A manager has no automatic access to unrelated uploads.
+    assert response.status_code == 403

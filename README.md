@@ -3,7 +3,7 @@ DocuFlow AI is an AI-powered document-processing and workflow automation system 
 The project is being built incrementally using a modular monolith architecture with clear separation between API routes, schemas, services, repositories, database models, security, file storage, document processing, AI logic, deterministic business rules, and tests.
 ---
 ## Current Project Status
-Completed:
+Completed implementation and phase verification:
 * Phase 1 — Project Setup
 * Phase 2 — Backend Foundation
 * Phase 3 — Database Design
@@ -15,14 +15,14 @@ Completed:
 * Phase 9 — Workflow & Approval
 * Phase 10 — RAG / Document Q&A
 * Phase 11 — Dashboard & Audit Logs
-
-Completed implementation (final integration verification and commit pending):
 * Phase 12 — Frontend
 * Phase 12.5 — MVP Workflow Completion, Manager Experience & UI Redesign
+* Phase 13 — Testing & Reliability (testing work completed; final commit/merge pending)
 
 Next:
-* Phase 13 — Testing & Reliability
 * Phase 14 — Deployment / DevOps
+
+Phase 13 verification snapshot (October 2026): **252 backend tests passed, 1 skipped** in the latest shared full-suite coverage run; **51 frontend tests passed**; backend coverage baseline **90%**; workflow-history service coverage **96%**; frontend lint/build passed; `npm audit` reported **0 vulnerabilities**. A subsequent document-access test was added, but its final full-suite result has not yet been supplied. Final checks should be rerun immediately before merging.
 ---
 ## Technology Stack
 ### Frontend
@@ -116,14 +116,16 @@ Next:
 ### Infrastructure & Development
 * Docker
 * Docker Compose
-* pytest
+* pytest and pytest-cov (including branch coverage)
 * FastAPI TestClient
 * Ruff
+* Vitest and React Testing Library for frontend tests
+* Oxlint, TypeScript compiler, and Vite production builds
 ---
 ## Project Architecture
 DocuFlow currently follows a modular monolith structure.
 
-Phase 12 adds a separate React frontend that consumes the FastAPI application over HTTP. Phase 12.5 adds full human-in-the-loop review paths, document access controls, workflow history, and a refreshed role-aware UI.
+Phase 12 adds a separate React frontend that consumes the FastAPI application over HTTP. Phase 12.5 adds full human-in-the-loop review paths, document access controls, workflow history, and a refreshed role-aware UI. Phase 13 strengthens automated regression, security, transaction, concurrency, and history tests without changing the modular-monolith design.
 
 ```text
 frontend/
@@ -1858,11 +1860,27 @@ GET /health/database
 The database health endpoint verifies PostgreSQL connectivity using a lightweight SQL query.
 ---
 ## Testing
-DocuFlow uses `pytest`.
-Run the complete test suite:
+DocuFlow uses `pytest` for backend unit/integration tests and Vitest with React Testing Library for frontend tests. PostgreSQL integration tests use an isolated test database.
+
+From `backend/`:
 ```bash
-pytest -v
+pytest -q
+ruff check app tests
+ruff format --check app tests
+pytest --cov=app --cov-branch --cov-report=term-missing -q
 ```
+
+From `frontend/`:
+```bash
+npm test
+npm run lint
+npm run build
+npm audit
+```
+
+The coverage report creates `backend/.coverage`, which is generated local test data and must not be committed. The symlink security test may be skipped on Windows when the OS does not permit symlink creation. A skip is not evidence that the symlink scenario passed; verify it in a compatible environment when possible.
+
+**Latest shared Phase 13 verification (October 2026):** 252 backend tests passed, 1 skipped; 51 frontend tests passed across 10 test files; measured overall backend coverage 90% and workflow-history service coverage 96%; frontend lint and production build passed; npm audit found 0 vulnerabilities. The newer file-access regression test still requires a recorded final full-suite run before merging.
 ### Health Tests
 Current health testing includes:
 * application health endpoint
@@ -2082,8 +2100,8 @@ Temporary filesystem locations are also used during document tests to avoid poll
 backend/uploads/
 ```
 The integration-test database is created from SQLAlchemy metadata and isolated using database transactions.
-### Current Test Status
-Focused Phase 12 regression suites currently verified:
+### Historical Phase 12 Regression Snapshot
+The following are historical focused-suite counts from Phase 12, not the current full-suite totals:
 
 ```text
 Workflow API: 15 passed
@@ -2091,13 +2109,13 @@ Audit Log API: 10 passed
 Document API: 24 passed
 ```
 
-Before committing Phase 12, run the complete local suite:
+For current Phase 13 full-suite verification, run:
 
 ```bash
 pytest -v
 ```
 
-and record the exact full-suite count from that run.
+and record the exact full-suite count from that run. See the Phase 13 verification snapshot above for the latest shared baseline.
 
 Also verify backend formatting/linting and frontend production checks:
 
@@ -2240,7 +2258,7 @@ Workflow Document Review          ✅
 Audit Logs                        ✅
 ```
 
-The next major phase is Phase 13 — Testing & Reliability, following completion of the Phase 12.5 workflow and UI work.
+Phase 13 testing and reliability work has been carried out. The next major phase is Phase 14 — Deployment / DevOps, after the final Phase 13 commit and merge.
 ---
 ## Supported Document Types
 DocuFlow is designed to support:
@@ -2283,8 +2301,8 @@ Phase 10 — RAG / Document Q&A                 ✅ Completed
 Phase 11 — Dashboard & Audit Logs              ✅ Completed
 Phase 12 — Frontend                            ✅ Implemented
 Phase 12.5 — MVP Workflow Completion & UI       ✅ Implemented
-Phase 13 — Testing & Reliability                ← Next
-Phase 14 — Deployment / DevOps
+Phase 13 — Testing & Reliability                ✅ Testing completed; merge pending
+Phase 14 — Deployment / DevOps                 ← Next
 ```
 The project is developed incrementally, with each phase implemented, tested, reviewed, documented, and committed before the next major phase begins.
 ---
@@ -3216,11 +3234,11 @@ The review forms support an **embedded** mode that reuses document details loade
 
 ### Phase 12.5 Verification and Known Boundaries
 
-- The backend had a regression run of **246 passed, 1 failed, 1 skipped**. The failure was an older test submitting a rejection with `comment=None` after the new validation required a reason. The test was updated and a subsequent run was reported successful, but its exact final counts have not been supplied for documentation.
+- An earlier Phase 12.5 regression run of **246 passed, 1 failed, 1 skipped** exposed an outdated rejection test using `comment=None`. That test was corrected. The subsequent Phase 13 baseline recorded **252 passed, 1 skipped**; no failures were reported in that run.
 - A focused approval-schema check accepted valid approvals, rejections and information requests, and rejected empty/whitespace explanations as intended.
-- Ruff formatting and lint checks were exercised during closing work; record the final complete check output before claiming a verified clean release.
-- The UI redesign and manual-review edits were reported completed. Confirm the exact frontend production build, tests, and browser-based cross-role scenarios during the closing pass.
-- Automated test coverage includes workflow authorization, manual-review/service behavior, audit transactions, file access, workflow history, and frontend workflow components. Run all relevant suites again after the final Codex changes.
+- Ruff lint and formatting checks passed in the Phase 13 verification process. The last reported formatting check found **127 files already formatted**.
+- The frontend regression suite passed **51 tests across 10 files**; Oxlint reported **0 errors and warnings**, and the Vite production build succeeded. Manual cross-role browser verification remains a separate deployment-readiness item.
+- Automated testing covers workflow authorization, manual-review behavior, audit transactions, file access, workflow history, and frontend workflow components. Phase 13 also added information-response history cases and a targeted no-workflow file-access authorization test. Final full-suite re-verification after the last addition remains pending.
 - Current limitations: automated invoice resolution only; other document types can be classified and routed for manual review but do not have equivalent document-specific automated resolution rules. Text-based PDFs are supported, while scanned/image-only PDFs may require future OCR. Storage remains local and AI calls are synchronous where implemented.
 
 ### Phase 12.5 Closing Checklist
@@ -3229,13 +3247,86 @@ The review forms support an **embedded** mode that reuses document details loade
 - [x] Add secure original-file access and readable manager review context
 - [x] Implement the redesigned app shell, dashboard, login, and core page styles
 - [x] Confirm configured database is on the single Alembic head
-- [ ] Record final backend full-suite pass count and any skipped tests
-- [ ] Record final frontend build/lint/unit-test results after all Codex changes
-- [ ] Complete manual end-to-end employee, manager, and admin checks
-- [ ] Commit and push the reviewed Phase 12.5 branch
+- [x] Record a backend full-suite baseline and the symlink skip reason (252 passed, 1 skipped)
+- [x] Record frontend regression/build/lint/security results (51 passed, build/lint clean, 0 npm vulnerabilities)
+- [ ] Complete manual end-to-end employee, manager, and admin checks before production release
+- [x] Merge Phase 12.5 implementation into `main` (historical PR #1)
+- [ ] Rerun final Phase 13 full-stack checks, then commit, push, and merge `feature/phase-13-testing`
 
 ### Next Phases
 
-**Phase 13 — Testing & Reliability:** Regression and integration tests, role/ownership checks, migrations in a fresh database, workflow edge cases, file access and security regression, error handling, concurrency/rollback, AI/RAG evaluations as appropriate, and real browser E2E checks.
+**Phase 13 — Testing & Reliability:** Testing work completed with regression, role/ownership, secure file-access, history-ordering, concurrency and manual-review rollback checks. Further browser E2E and broader failure-injection work remain future hardening tasks rather than claiming they were performed.
 
 **Phase 14 — Deployment / DevOps:** Production configuration, secrets, database migrations, container setup, frontend/backend hosting, monitoring, backups, and release process.
+
+
+---
+
+## Phase 13 — Testing & Reliability Completion Summary (October 2026)
+
+**Status:** Testing and hardening work completed; final post-change verification and merge pending. Phase 14 is next.
+
+### Scope and Improvements
+
+- Verified backend service, API, integration, and PostgreSQL-backed tests; checked Ruff lint and formatting.
+- Verified frontend Vitest/React Testing Library suites, Oxlint, TypeScript compilation, and Vite production build.
+- Resolved the npm audit findings through compatible lockfile dependency updates. Verified `vite@8.3.5`, `follow-redirects@1.16.1`, and `npm audit` reporting **0 vulnerabilities** at the time of the check.
+- Reviewed centralized document permissions and removed the unused duplicate `_can_access_document()` method from `DocumentFileAccessService`; active authorization remains delegated to `DocumentAccessPolicy`.
+- Expanded workflow-history tests for unanswered information requests, replies linked to approvals or manual reviews, unlinked replies, and chronological ordering of multiple responses.
+- Added a targeted API regression test denying unrelated manager access to a document with no workflow.
+- Reviewed existing original-file API tests for owner access, cross-user denial, anonymous denial, missing files, invalid stored filenames, download/preview behavior, assigned managers, shared-review queue access, and administrator access.
+- Reviewed a real PostgreSQL row-lock concurrency test that verifies only one conflicting manual-review decision persists; reviewed an audit-failure test that verifies rollback of manual-review status, corrected invoice data, and review records.
+
+### Verified Results and Commands
+
+| Area | Last recorded result |
+| --- | --- |
+| Backend full-suite test run | **252 passed, 1 skipped** (before the newest file-access API test was added) |
+| Frontend Vitest | **51 passed** across 10 files |
+| Backend overall coverage | **90%** baseline, with `--cov-branch` enabled (before later test/cleanup changes) |
+| Workflow history service coverage | **96%**, improved from 61% |
+| Backend Ruff lint | Passed |
+| Backend Ruff format | 127 files already formatted |
+| Frontend Oxlint | 0 warnings, 0 errors |
+| TypeScript/Vite build | Passed with Vite 8.3.5 |
+| npm audit | 0 vulnerabilities |
+
+Run final checks from `backend/`:
+
+```powershell
+pytest -q
+ruff check app tests
+ruff format --check app tests
+pytest --cov=app --cov-branch --cov-report=term-missing -q
+```
+
+Run final checks from `frontend/`:
+
+```powershell
+npm test
+npm run lint
+npm run build
+npm audit
+```
+
+### Known Limitations and Release Considerations
+
+- The symlink security test at `tests/test_file_storage_retrieval.py` was skipped because symlink creation was unavailable in the local Windows environment. Its behavior should be verified in a compatible test environment.
+- Backend coverage is a test execution metric, not a guarantee of correctness. Overall coverage may change after removing unused code and adding tests; use the next complete report as the authoritative current value.
+- The documented checks do not establish completed browser-based end-to-end testing for every employee, manager, and administrator journey. Perform deployment smoke tests and cross-role verification in Phase 14.
+- A dedicated approval/audit failure-injection test, broader concurrent operation coverage, fresh-database migration verification, and additional AI/RAG resilience checks can be prioritized later based on release risk.
+- The current original-file storage is local to the backend. Phase 14 must address durable storage, production secrets/configuration, database migrations, backups, observability, and operational recovery before treating DocuFlow as production-ready.
+- `pytest-cov` was installed in the local virtual environment. Confirm it is declared in a development dependency configuration before setting up CI or relying on reproducible coverage checks.
+
+### Phase 13 Closing Checklist
+
+- [x] Backend and frontend automated regression suites exercised
+- [x] Ruff, Oxlint, and production frontend build verified
+- [x] npm dependency security issues resolved and audit clean
+- [x] Workflow history and document authorization test gaps addressed
+- [x] Existing concurrency and manual-review rollback tests reviewed
+- [ ] Run and record the final complete verification after all Phase 13 edits
+- [ ] Exclude generated `backend/.coverage` from version control
+- [ ] Commit and push `feature/phase-13-testing`; merge the reviewed pull request into `main`
+
+**Next: Phase 14 — Deployment / DevOps.**

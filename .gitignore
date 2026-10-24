@@ -33,3 +33,7 @@ Thumbs.db
 
 # Docker and database local files
 postgres-data/
+# Python coverage reports
+.coverage
+.coverage.*
+htmlcov/
