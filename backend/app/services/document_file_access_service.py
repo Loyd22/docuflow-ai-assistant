@@ -5,8 +5,6 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.db.enums import UserRole, WorkflowStatus
-from app.db.models.document import Document
 from app.db.models.user import User
 from app.repositories.document_repository import get_document_by_id
 from app.security.document_access_policy import DocumentAccessPolicy
@@ -88,42 +86,3 @@ class DocumentFileAccessService:
             original_file_name=document.original_file_name,
             mime_type=document.mime_type,
         )
-
-    @staticmethod
-    def _can_access_document(
-        *,
-        document: Document,
-        current_user: User,
-    ) -> bool:
-        """Check whether a user may access an original document."""
-
-        # Admins can access all documents.
-        if current_user.role == UserRole.ADMIN:
-            return True
-
-        # Users can access documents they uploaded.
-        if document.uploaded_by == current_user.id:
-            return True
-
-        # Managers can access assigned or shared-review documents.
-        if current_user.role == UserRole.MANAGER:
-            workflow = document.workflow
-
-            # A document without a workflow has no review assignment.
-            if workflow is None:
-                return False
-
-            # An assigned manager can access their document.
-            if workflow.assigned_to == current_user.id:
-                return True
-
-            # Unassigned review workflows belong to the shared queue.
-            if workflow.assigned_to is None:
-                return workflow.current_status in {
-                    WorkflowStatus.NEEDS_REVIEW,
-                    WorkflowStatus.PENDING_APPROVAL,
-                    WorkflowStatus.NEEDS_INFORMATION,
-                }
-
-        # Deny access when no permission rule applies.
-        return False
