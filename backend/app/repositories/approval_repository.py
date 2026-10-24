@@ -1,9 +1,8 @@
 """
 Database access functions for workflow approvals.
 
-The repository layer is responsible only for approval persistence
-and retrieval. It should not contain authorization rules,
-HTTP logic, or workflow state-transition decisions.
+The repository layer handles approval persistence and retrieval.
+Workflow decisions and authorization belong to the service layer.
 """
 
 from sqlalchemy import select
@@ -20,8 +19,9 @@ def create_approval(
     approver_id: int,
     decision: ApprovalDecision,
     comment: str | None = None,
+    commit: bool = True,
 ) -> Approval:
-    """Create and persist a workflow approval decision."""
+    """Create an approval decision, optionally deferring the commit."""
 
     approval = Approval(
         workflow_id=workflow_id,
@@ -31,8 +31,14 @@ def create_approval(
     )
 
     database_session.add(approval)
-    database_session.commit()
-    database_session.refresh(approval)
+
+    if commit:
+        # Preserve existing behavior for callers that expect a commit.
+        database_session.commit()
+        database_session.refresh(approval)
+    else:
+        # Get the approval ID without completing the transaction.
+        database_session.flush()
 
     return approval
 

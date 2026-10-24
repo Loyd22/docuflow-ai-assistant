@@ -23,8 +23,9 @@ def create_audit_log(
     entity_type: AuditEntityType,
     entity_id: int | None = None,
     event_metadata: dict[str, Any] | None = None,
+    commit: bool = True,
 ) -> AuditLog:
-    """Create and persist an audit-log entry."""
+    """Create an audit event, optionally without committing."""
 
     audit_log = AuditLog(
         user_id=user_id,
@@ -35,8 +36,14 @@ def create_audit_log(
     )
 
     database_session.add(audit_log)
-    database_session.commit()
-    database_session.refresh(audit_log)
+
+    if commit:
+        # Preserve existing behavior for other services.
+        database_session.commit()
+        database_session.refresh(audit_log)
+    else:
+        # Save within the current transaction without committing.
+        database_session.flush()
 
     return audit_log
 
@@ -47,7 +54,7 @@ def get_audit_logs_by_entity(
     entity_type: AuditEntityType,
     entity_id: int,
 ) -> list[AuditLog]:
-    """Return audit logs for a specific entity."""
+    """Return audit events in a consistent sequence."""
 
     statement = (
         select(AuditLog)
@@ -55,7 +62,8 @@ def get_audit_logs_by_entity(
             AuditLog.entity_type == entity_type,
             AuditLog.entity_id == entity_id,
         )
-        .order_by(AuditLog.created_at.asc())
+        # IDs provide a deterministic event sequence.
+        .order_by(AuditLog.id.asc())
     )
 
     return list(database_session.scalars(statement))

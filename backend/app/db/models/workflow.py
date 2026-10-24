@@ -17,6 +17,10 @@ if TYPE_CHECKING:
     from app.db.models.approval import Approval
     from app.db.models.document import Document
     from app.db.models.user import User
+    from app.db.models.workflow_information_request import (
+        WorkflowInformationRequest,
+    )
+    from app.db.models.workflow_review import WorkflowReview
 
 
 class Workflow(Base):
@@ -92,5 +96,14 @@ class Workflow(Base):
     )
 
     approvals: Mapped[list["Approval"]] = relationship(
+        back_populates="workflow",
+    )
+
+    reviews: Mapped[list["WorkflowReview"]] = relationship(
+        back_populates="workflow",
+    )
+
+    # Keep information requests linked to this workflow.
+    information_requests: Mapped[list["WorkflowInformationRequest"]] = relationship(
         back_populates="workflow",
     )

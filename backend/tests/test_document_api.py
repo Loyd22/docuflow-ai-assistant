@@ -921,9 +921,7 @@ def test_document_owner_can_view_document_details(
 
     assert document is not None
 
-    document.extracted_text = (
-        "Invoice Number: INV-DETAIL-001"
-    )
+    document.extracted_text = "Invoice Number: INV-DETAIL-001"
     document.summary = "Invoice requiring manager review."
     document.document_type = DocumentType.INVOICE
     document.classification_confidence = 0.97
@@ -953,12 +951,8 @@ def test_document_owner_can_view_document_details(
     assert response_data["id"] == document_id
     assert response_data["original_file_name"] == "review-document.txt"
     assert response_data["document_type"] == "invoice"
-    assert response_data["extracted_text"] == (
-        "Invoice Number: INV-DETAIL-001"
-    )
-    assert response_data["summary"] == (
-        "Invoice requiring manager review."
-    )
+    assert response_data["extracted_text"] == ("Invoice Number: INV-DETAIL-001")
+    assert response_data["summary"] == ("Invoice requiring manager review.")
     assert response_data["classification_confidence"] == 0.97
 
     assert response_data["extracted_data"] == {
@@ -1025,12 +1019,10 @@ def test_employee_cannot_view_another_users_document_details(
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == (
-        "You are not allowed to view this document."
-    )
+    assert response.json()["detail"] == ("You are not allowed to view this document.")
 
 
-def test_manager_can_view_another_users_document_details(
+def test_manager_cannot_view_unassigned_document_without_workflow(
     client: TestClient,
     db_session: Session,
     tmp_path: Path,
@@ -1073,11 +1065,7 @@ def test_manager_can_view_another_users_document_details(
         email=manager_email,
     )
 
-    manager = (
-        db_session.query(User)
-        .filter(User.email == manager_email)
-        .one()
-    )
+    manager = db_session.query(User).filter(User.email == manager_email).one()
 
     manager.role = UserRole.MANAGER
     db_session.commit()
@@ -1090,8 +1078,10 @@ def test_manager_can_view_another_users_document_details(
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["id"] == document_id
+    # The document has no workflow, so the manager has no review access.
+    assert response.status_code == 403
+
+    assert response.json()["detail"] == ("You are not allowed to view this document.")
 
 
 def test_admin_can_view_another_users_document_details(
@@ -1137,11 +1127,7 @@ def test_admin_can_view_another_users_document_details(
         email=admin_email,
     )
 
-    admin = (
-        db_session.query(User)
-        .filter(User.email == admin_email)
-        .one()
-    )
+    admin = db_session.query(User).filter(User.email == admin_email).one()
 
     admin.role = UserRole.ADMIN
     db_session.commit()

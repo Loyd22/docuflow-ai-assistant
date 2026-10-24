@@ -24,6 +24,7 @@ from app.db.enums import (
     UserRole,
     WorkflowStatus,
 )
+from app.db.models.user import User
 from app.schemas.business_rule_schema import (
     BusinessAction,
     BusinessRuleResult,
@@ -260,19 +261,32 @@ def test_record_approved_decision(
 ) -> None:
     """Approved decisions should move the workflow to approved."""
 
+    # Create a workflow waiting for manager approval.
     workflow = Mock()
     workflow.id = 5
     workflow.current_status = WorkflowStatus.PENDING_APPROVAL
 
+    # Simulate retrieving the latest locked workflow.
+    monkeypatch.setattr(
+        "app.services.workflow_service.get_workflow_for_update",
+        Mock(return_value=workflow),
+    )
+
+    # Simulate the approval record created in the database.
     created_approval = Mock()
     created_approval.id = 30
 
-    mock_create_approval = Mock(return_value=created_approval)
+    mock_create_approval = Mock(
+        return_value=created_approval,
+    )
 
+    # Simulate the workflow after approval.
     updated_workflow = Mock()
     updated_workflow.current_status = WorkflowStatus.APPROVED
 
-    mock_update_status = Mock(return_value=updated_workflow)
+    mock_update_status = Mock(
+        return_value=updated_workflow,
+    )
 
     monkeypatch.setattr(
         "app.services.workflow_service.create_approval",
@@ -284,15 +298,26 @@ def test_record_approved_decision(
         mock_update_status,
     )
 
+    # Create a mocked database session.
     mock_database_session = Mock()
+
+    # Simulate an authorized admin submitting the decision.
+    mock_approver = Mock(spec=User)
+    mock_approver.id = 7
+    mock_approver.role = UserRole.ADMIN
+
+    # Return the authorized admin when the service looks up the user.
+    mock_database_session.get.return_value = mock_approver
 
     service = WorkflowService(
         database_session=mock_database_session,
     )
 
+    # Replace audit logging with a mock.
     mock_record_event = Mock()
     service.audit_log_service.record_event = mock_record_event
 
+    # Execute the approval decision.
     result_workflow, approval = service.record_approval_decision(
         workflow=workflow,
         approver_id=7,
@@ -300,23 +325,35 @@ def test_record_approved_decision(
         comment="Approved for payment.",
     )
 
+    # Verify the returned workflow and approval.
     assert result_workflow is updated_workflow
     assert approval is created_approval
 
+    # Verify that the service retrieves the authorized admin.
+    mock_database_session.get.assert_called_once_with(
+        User,
+        7,
+    )
+
+    # Verify that the approval is saved.
     mock_create_approval.assert_called_once_with(
         database_session=mock_database_session,
         workflow_id=5,
         approver_id=7,
         decision=ApprovalDecision.APPROVED,
         comment="Approved for payment.",
+        commit=False,
     )
 
+    # Verify that the workflow moves to APPROVED.
     mock_update_status.assert_called_once_with(
         database_session=mock_database_session,
         workflow=workflow,
         status=WorkflowStatus.APPROVED,
+        commit=False,
     )
 
+    # Verify that an audit event is recorded.
     mock_record_event.assert_called_once_with(
         user_id=7,
         action=AuditAction.WORKFLOW_APPROVED,
@@ -327,7 +364,11 @@ def test_record_approved_decision(
             "previous_status": "pending_approval",
             "new_status": "approved",
         },
+        commit=False,
     )
+
+    # Verify that the transaction is committed.
+    mock_database_session.commit.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -357,6 +398,11 @@ def test_record_decision_updates_expected_status(
     workflow.id = 6
     workflow.current_status = WorkflowStatus.PENDING_APPROVAL
 
+    monkeypatch.setattr(
+        "app.services.workflow_service.get_workflow_for_update",
+        Mock(return_value=workflow),
+    )
+
     created_approval = Mock()
     created_approval.id = 31
 
@@ -375,8 +421,24 @@ def test_record_decision_updates_expected_status(
         mock_update_status,
     )
 
+    mock_create_information_request = Mock()
+    monkeypatch.setattr(
+        "app.services.workflow_service.create_information_request",
+        mock_create_information_request,
+    )
+
+    mock_database_session = Mock()
+
+    # Simulate an authorized admin for workflow decisions.
+    mock_approver = Mock(spec=User)
+    mock_approver.id = 8
+    mock_approver.role = UserRole.ADMIN
+
+    # Return the admin when WorkflowService looks up the user.
+    mock_database_session.get.return_value = mock_approver
+
     service = WorkflowService(
-        database_session=Mock(),
+        database_session=mock_database_session,
     )
 
     mock_record_event = Mock()
@@ -386,9 +448,28 @@ def test_record_decision_updates_expected_status(
         workflow=workflow,
         approver_id=8,
         decision=decision,
+        comment=(
+            "Please provide the missing information."
+            if decision == ApprovalDecision.INFORMATION_REQUESTED
+            else "The document contains incorrect information."
+        ),
     )
 
     assert mock_update_status.call_args.kwargs["status"] == expected_status
+    assert mock_update_status.call_args.kwargs["commit"] is False
+    mock_database_session.commit.assert_called_once()
+
+    if decision == ApprovalDecision.INFORMATION_REQUESTED:
+        mock_create_information_request.assert_called_once_with(
+            database_session=mock_database_session,
+            workflow_id=6,
+            requested_by=8,
+            request_comment="Please provide the missing information.",
+            return_status=WorkflowStatus.PENDING_APPROVAL.value,
+            approval_id=31,
+        )
+    else:
+        mock_create_information_request.assert_not_called()
 
     mock_record_event.assert_called_once_with(
         user_id=8,
@@ -400,6 +481,7 @@ def test_record_decision_updates_expected_status(
             "previous_status": "pending_approval",
             "new_status": expected_status.value,
         },
+        commit=False,
     )
 
 
@@ -411,6 +493,11 @@ def test_record_decision_rejects_invalid_workflow_state(
     workflow = Mock()
     workflow.id = 7
     workflow.current_status = WorkflowStatus.COMPLETED
+
+    monkeypatch.setattr(
+        "app.services.workflow_service.get_workflow_for_update",
+        Mock(return_value=workflow),
+    )
 
     mock_create_approval = Mock()
     mock_update_status = Mock()
@@ -425,8 +512,17 @@ def test_record_decision_rejects_invalid_workflow_state(
         mock_update_status,
     )
 
+    mock_database_session = Mock()
+
+    # Use an authorized admin so we can test the invalid status.
+    mock_approver = Mock(spec=User)
+    mock_approver.id = 7
+    mock_approver.role = UserRole.ADMIN
+
+    mock_database_session.get.return_value = mock_approver
+
     service = WorkflowService(
-        database_session=Mock(),
+        database_session=mock_database_session,
     )
 
     mock_record_event = Mock()
@@ -445,3 +541,5 @@ def test_record_decision_rejects_invalid_workflow_state(
     mock_create_approval.assert_not_called()
     mock_update_status.assert_not_called()
     mock_record_event.assert_not_called()
+
+    mock_database_session.rollback.assert_called_once()

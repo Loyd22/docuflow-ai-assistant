@@ -1,58 +1,19 @@
-.workflow-table-wrapper {
-  overflow-x: auto;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-}
+@import "../../styles/DataTable.css";
 
-.workflow-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.workflow-table th,
-.workflow-table td {
-  padding: 14px 16px;
-  text-align: left;
-  white-space: nowrap;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.workflow-table th {
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 600;
-  background: #f9fafb;
-}
-
-.workflow-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.workflow-table tbody tr:hover {
-  background: #f9fafb;
-}
-
-.workflow-status {
-  display: inline-block;
-  padding: 4px 8px;
-  font-size: 12px;
-  background: #eef2ff;
-  border-radius: 999px;
-}
-
-.workflow-review-button {
-  padding: 7px 12px;
-  color: #ffffff;
-  background: #111827;
-  border: 0;
-  border-radius: 6px;
-}
-
-.workflow-review-button:hover {
-  background: #1f2937;
-}
-
-.workflow-no-action {
-  color: #9ca3af;
-}
+.workflow-table td:nth-child(5) { min-width: 160px; max-width: 260px; overflow-wrap: anywhere; }
+.workflow-table td:nth-child(6) { min-width: 155px; color: var(--color-muted); }
+.workflow-status { display: inline-block; padding: 5px 10px; font-size: 12px; font-weight: 500; background: var(--color-primary-soft); color: var(--color-primary-deep); border-radius: 999px; white-space: nowrap; }
+.workflow-status-needs_review { background: var(--color-warning-soft); color: var(--color-warning-text); }
+.workflow-status-needs_information { background: var(--color-info-soft); color: var(--color-info-text); }
+.workflow-status-approved, .workflow-status-completed { background: var(--color-success-soft); color: var(--color-success-text); }
+.workflow-status-rejected { background: var(--color-danger-soft); color: var(--color-danger-text); }
+.workflow-priority { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-muted); }
+.workflow-priority::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.workflow-priority-urgent { color: #b54726; font-weight: 600; }
+.workflow-row-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.workflow-review-button, .workflow-history-button { min-height: 38px; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; }
+.workflow-review-button { color: var(--color-surface); background: var(--color-primary); border-color: var(--color-primary); }
+.workflow-review-button:hover:not(:disabled) { background: var(--color-primary-deep); }
+.workflow-history-button { color: var(--color-text); background: var(--color-surface); }
+.workflow-history-button:hover:not(:disabled) { background: var(--color-primary-soft); }
+.workflow-review-button:focus-visible, .workflow-history-button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }

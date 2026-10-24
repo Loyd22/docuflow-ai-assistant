@@ -38,16 +38,16 @@ function AuditLogTable({
   auditLogs,
 }: AuditLogTableProps) {
   return (
-    <div className="audit-table-wrapper">
+    <div className="audit-table-wrapper" role="region" aria-label="Audit logs table" tabIndex={0}>
       <table className="audit-table">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Action</th>
-            <th>Entity</th>
-            <th>Entity ID</th>
-            <th>User ID</th>
-            <th>Metadata</th>
+            <th scope="col">Time</th>
+            <th scope="col">Action</th>
+            <th scope="col">Entity</th>
+            <th scope="col">Entity ID</th>
+            <th scope="col">User ID</th>
+            <th scope="col">Metadata</th>
           </tr>
         </thead>
 

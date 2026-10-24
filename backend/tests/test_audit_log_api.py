@@ -338,10 +338,7 @@ def test_manager_can_list_all_audit_logs(
 
     response_data = response.json()
 
-    audit_log_ids = {
-        item["id"]
-        for item in response_data
-    }
+    audit_log_ids = {item["id"] for item in response_data}
 
     assert audit_log.id in audit_log_ids
 
@@ -380,10 +377,7 @@ def test_admin_can_list_all_audit_logs(
 
     assert response.status_code == 200
 
-    audit_log_ids = {
-        item["id"]
-        for item in response.json()
-    }
+    audit_log_ids = {item["id"] for item in response.json()}
 
     assert audit_log.id in audit_log_ids
 
@@ -463,10 +457,7 @@ def test_all_audit_logs_are_returned_newest_first(
 
     response_data = response.json()
 
-    returned_ids = [
-        item["id"]
-        for item in response_data
-    ]
+    returned_ids = [item["id"] for item in response_data]
 
     first_index = returned_ids.index(
         first_audit_log.id,

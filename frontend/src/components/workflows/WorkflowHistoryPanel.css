@@ -1,0 +1,72 @@
+
+.workflow-history-panel {
+  margin-top: 24px;
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.workflow-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.workflow-history-header h3 {
+  margin: 0;
+}
+
+.workflow-history-header p {
+  margin: 6px 0 0;
+  color: var(--color-muted);
+}
+
+.workflow-history-header button {
+  padding: 8px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: white;
+  cursor: pointer;
+}
+
+.workflow-history-list {
+  margin: 0;
+  padding-left: 24px;
+}
+
+.workflow-history-item {
+  padding: 0 0 20px 12px;
+}
+
+.workflow-history-item + .workflow-history-item {
+  border-top: 1px solid #f3f4f6;
+  padding-top: 20px;
+}
+
+.workflow-history-item-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.workflow-history-item-heading time {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.workflow-history-item p {
+  margin: 8px 0 0;
+  color: #4b5563;
+}
+
+.workflow-history-comment {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-background);
+  overflow-wrap: anywhere;
+}

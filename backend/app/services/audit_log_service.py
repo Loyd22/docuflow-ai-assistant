@@ -36,8 +36,9 @@ class AuditLogService:
         entity_type: AuditEntityType,
         entity_id: int | None = None,
         event_metadata: dict[str, Any] | None = None,
+        commit: bool = True,
     ) -> AuditLog:
-        """Record an important user or system action."""
+        """Record an audit event in the current database session."""
 
         return create_audit_log(
             database_session=self.database_session,
@@ -46,6 +47,7 @@ class AuditLogService:
             entity_type=entity_type,
             entity_id=entity_id,
             event_metadata=event_metadata,
+            commit=commit,
         )
 
     def get_all_logs(self) -> list[AuditLog]:

@@ -6,6 +6,7 @@ and delegate business logic to the document service layer.
 """
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.ai.classifier import DocumentClassifier
@@ -21,7 +22,6 @@ from app.ai.exceptions import (
 from app.ai.extractor import InvoiceExtractor
 from app.ai.qa_generator import DocumentQAGenerator
 from app.api.dependencies import get_current_user
-from app.db.enums import UserRole
 from app.db.models.user import User
 from app.db.session import get_db_session
 from app.processing.exceptions import DocumentProcessingError
@@ -34,10 +34,17 @@ from app.schemas.document_schema import (
     DocumentQuestionResponse,
     DocumentResponse,
 )
+from app.security.document_access_policy import DocumentAccessPolicy
 from app.services.document_ai_service import DocumentAIService
 from app.services.document_analysis_service import DocumentAnalysisService
 from app.services.document_chunking_service import DocumentChunkingService
 from app.services.document_embedding_service import DocumentEmbeddingService
+from app.services.document_file_access_service import (
+    DocumentFileAccessDeniedError,
+    DocumentFileAccessService,
+    DocumentFileNotFoundError,
+    DocumentFileStorageError,
+)
 from app.services.document_indexing_service import DocumentIndexingService
 from app.services.document_processing_service import process_document
 from app.services.document_qa_service import DocumentQAService
@@ -52,6 +59,102 @@ router = APIRouter(
     prefix="/documents",
     tags=["Documents"],
 )
+
+
+def get_authorized_original_file(
+    document_id: int,
+    current_user: User,
+    database_session: Session,
+):
+    """Locate the original file after checking user permissions."""
+
+    service = DocumentFileAccessService(
+        database_session=database_session,
+    )
+
+    try:
+        return service.get_authorized_file(
+            document_id=document_id,
+            current_user=current_user,
+        )
+
+    except DocumentFileAccessDeniedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(error),
+        ) from error
+
+    except DocumentFileNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+
+    except DocumentFileStorageError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Original document storage is invalid.",
+        ) from error
+
+
+@router.get("/{document_id}/view")
+def view_original_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    database_session: Session = Depends(get_db_session),
+) -> FileResponse:
+    """Open an authorized original document in the browser."""
+
+    original_file = get_authorized_original_file(
+        document_id=document_id,
+        current_user=current_user,
+        database_session=database_session,
+    )
+
+    # Only allow supported preview types.
+    extension = original_file.path.suffix.lower()
+
+    if extension not in {".pdf", ".txt"}:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Preview is supported only for PDF and TXT files.",
+        )
+
+    media_type = (
+        "application/pdf" if extension == ".pdf" else "text/plain; charset=utf-8"
+    )
+
+    return FileResponse(
+        path=original_file.path,
+        media_type=media_type,
+        content_disposition_type="inline",
+        filename=original_file.original_file_name,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get("/{document_id}/download")
+def download_original_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    database_session: Session = Depends(get_db_session),
+) -> FileResponse:
+    """Download an authorized original uploaded document."""
+
+    original_file = get_authorized_original_file(
+        document_id=document_id,
+        current_user=current_user,
+        database_session=database_session,
+    )
+
+    # Downloads are always returned as attachments.
+    return FileResponse(
+        path=original_file.path,
+        media_type="application/octet-stream",
+        filename=original_file.original_file_name,
+        content_disposition_type="attachment",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.post(
@@ -379,8 +482,9 @@ def get_document_details(
     current_user: User = Depends(get_current_user),
     database_session: Session = Depends(get_db_session),
 ) -> DocumentDetailResponse:
-    """Return detailed information for one document."""
+    """Return document details only to authorized users."""
 
+    # Find the document in the database.
     document = get_document_by_id(
         database_session=database_session,
         document_id=document_id,
@@ -392,16 +496,17 @@ def get_document_details(
             detail="Document not found.",
         )
 
-    # Employees may only inspect documents they uploaded.
-    if (
-        current_user.role == UserRole.EMPLOYEE
-        and document.uploaded_by != current_user.id
+    # Apply the shared document access policy.
+    if not DocumentAccessPolicy.can_read_document(
+        document=document,
+        current_user=current_user,
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not allowed to view this document.",
         )
 
+    # Return details only after authorization succeeds.
     return DocumentDetailResponse.model_validate(document)
 
 

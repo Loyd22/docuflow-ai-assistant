@@ -10,12 +10,12 @@
 
 .workflows-heading p {
   margin: 0;
-  color: #6b7280;
+  color: var(--color-muted);
 }
 
 .workflow-message {
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .workflow-error {
@@ -31,9 +31,9 @@
 .empty-workflows {
   padding: 40px 20px;
   text-align: center;
-  background: #ffffff;
-  border: 1px dashed #d1d5db;
-  border-radius: 10px;
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .empty-workflows h3 {
@@ -42,5 +42,5 @@
 
 .empty-workflows p {
   margin: 0;
-  color: #6b7280;
+  color: var(--color-muted);
 }

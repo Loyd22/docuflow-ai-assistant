@@ -5,9 +5,9 @@
 
   padding: 20px;
 
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .question-panel-header {
@@ -23,15 +23,15 @@
 
 .question-panel-header p {
   margin: 0;
-  color: #6b7280;
+  color: var(--color-muted);
 }
 
 .question-close-button {
   padding: 7px 12px;
 
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
 .question-form {
@@ -50,8 +50,8 @@
 
   padding: 12px;
 
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
 .question-form button {
@@ -59,11 +59,11 @@
 
   padding: 9px 16px;
 
-  color: #ffffff;
+  color: var(--color-surface);
 
-  background: #111827;
+  background: var(--color-primary);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .question-form button:disabled {
@@ -77,7 +77,7 @@
   color: #991b1b;
 
   background: #fee2e2;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .question-response {
@@ -90,9 +90,9 @@
 .source-card {
   padding: 16px;
 
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
 .answer-card h4,
