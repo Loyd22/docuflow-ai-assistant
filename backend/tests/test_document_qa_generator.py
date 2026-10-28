@@ -1,9 +1,9 @@
 from unittest.mock import Mock
 
 import pytest
-from app.ai.qa_generator import DocumentQAGenerator
 
 from app.ai.exceptions import AIQuestionAnsweringError
+from app.ai.qa_generator import DocumentQAGenerator
 
 
 def test_generate_returns_grounded_answer() -> None:
