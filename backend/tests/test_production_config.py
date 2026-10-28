@@ -125,6 +125,7 @@ def test_test_database_url_is_optional() -> None:
         app_env="production",
         app_debug=False,
         cors_allowed_origins=["https://example.com"],
+        test_database_url=None,
     )
 
     assert settings.test_database_url is None
