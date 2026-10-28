@@ -1,8 +1,13 @@
+"""
+Shared pytest fixtures for backend integration tests.
+"""
+
 from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
@@ -10,6 +15,25 @@ from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
 
+# Integration tests must use a separate test database.
+if not settings.test_database_url:
+    raise RuntimeError(
+        "TEST_DATABASE_URL must be configured to run backend database tests."
+    )
+
+# Read the database URLs without displaying passwords.
+application_url = make_url(settings.database_url)
+test_url = make_url(settings.test_database_url)
+
+# Prevent tests from using the main application database.
+if (
+    application_url.host == test_url.host
+    and (application_url.port or 5432) == (test_url.port or 5432)
+    and application_url.database == test_url.database
+):
+    raise RuntimeError("TEST_DATABASE_URL must not point to the application database.")
+
+# Create the test database engine only after validation.
 test_engine = create_engine(
     settings.test_database_url,
 )

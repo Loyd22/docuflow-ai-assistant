@@ -18,18 +18,16 @@ def create_application() -> FastAPI:
         debug=settings.app_debug,
     )
 
-    # Allow the local React development server to call FastAPI.
+    # Allow only the frontend origins defined in our settings.
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-        ],
+        allow_origins=settings.cors_allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
+    # Register all API endpoints.
     application.include_router(api_router)
 
     return application

@@ -17,12 +17,17 @@ Completed implementation and phase verification:
 * Phase 11 — Dashboard & Audit Logs
 * Phase 12 — Frontend
 * Phase 12.5 — MVP Workflow Completion, Manager Experience & UI Redesign
-* Phase 13 — Testing & Reliability (testing work completed; final commit/merge pending)
+* Phase 13 — Testing & Reliability (merged into `main`)
 
-Next:
+In progress:
 * Phase 14 — Deployment / DevOps
+  * GitHub Actions CI: implemented and passing on merged pull request #5
+  * Phase 14.3 production configuration and local backend Docker: implemented and verified locally; feature branch not yet merged
+  * Cloud hosting, persistent document storage, production release controls, and monitoring: pending
 
-Phase 13 verification snapshot (October 2026): **252 backend tests passed, 1 skipped** in the latest shared full-suite coverage run; **51 frontend tests passed**; backend coverage baseline **90%**; workflow-history service coverage **96%**; frontend lint/build passed; `npm audit` reported **0 vulnerabilities**. A subsequent document-access test was added, but its final full-suite result has not yet been supplied. Final checks should be rerun immediately before merging.
+**Latest local backend verification (October 28, 2026):** `262 passed, 1 skipped`, `ruff check app tests` passed, and `ruff format --check app tests` reported 128 files formatted. This run preceded the latest test-database guard edit; rerun checks before merging. **Last reported frontend verification (Phase 13):** 51 tests passed across 10 files, lint/build passed, and npm audit reported 0 vulnerabilities at that time. Phase 13 measured backend coverage of 90% and workflow-history service coverage of 96%; those figures are historical baselines, not newly measured coverage.
+
+**CI:** `.github/workflows/ci.yml` runs backend Ruff/pytest against a PostgreSQL + pgvector service and frontend lint/Vitest/build for PRs targeting `main` and pushes to `main`. Both jobs passed on pull request #5. CI passing is not equivalent to a completed cloud deployment.
 ---
 ## Technology Stack
 ### Frontend
@@ -116,6 +121,8 @@ Phase 13 verification snapshot (October 2026): **252 backend tests passed, 1 ski
 ### Infrastructure & Development
 * Docker
 * Docker Compose
+* GitHub Actions CI (backend and frontend verification)
+* Dockerized FastAPI backend for local deployment testing
 * pytest and pytest-cov (including branch coverage)
 * FastAPI TestClient
 * Ruff
@@ -125,7 +132,7 @@ Phase 13 verification snapshot (October 2026): **252 backend tests passed, 1 ski
 ## Project Architecture
 DocuFlow currently follows a modular monolith structure.
 
-Phase 12 adds a separate React frontend that consumes the FastAPI application over HTTP. Phase 12.5 adds full human-in-the-loop review paths, document access controls, workflow history, and a refreshed role-aware UI. Phase 13 strengthens automated regression, security, transaction, concurrency, and history tests without changing the modular-monolith design.
+Phase 12 adds a separate React frontend that consumes the FastAPI application over HTTP. Phase 12.5 adds full human-in-the-loop review paths, document access controls, workflow history, and a refreshed role-aware UI. Phase 13 strengthens automated regression, security, transaction, concurrency, and history tests without changing the modular-monolith design. Phase 14 introduces CI, validated runtime configuration, and a locally verified Dockerized backend; cloud deployment is still pending.
 
 ```text
 frontend/
@@ -1756,11 +1763,13 @@ Relevant configuration includes:
 APP_NAME=DocuFlow AI
 APP_ENV=development
 APP_DEBUG=true
+CORS_ALLOWED_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5434
-POSTGRES_DB=docuflow
+POSTGRES_DB=docuflow_db
 POSTGRES_USER=your_postgres_user
 POSTGRES_PASSWORD=your_postgres_password
+DATABASE_URL=postgresql+psycopg://your_postgres_user:your_postgres_password@localhost:5434/docuflow_db
 JWT_SECRET_KEY=your_secure_random_secret
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
@@ -1768,7 +1777,7 @@ OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=your_configured_openai_model
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_EMBEDDING_DIMENSIONS=1536
-TEST_DATABASE_URL=postgresql+psycopg://user:password@localhost:5434/docuflow_test
+TEST_DATABASE_URL=postgresql+psycopg://your_postgres_user:your_postgres_password@localhost:5434/docuflow_test
 ```
 Never commit real secrets from `.env`.
 Generate a JWT secret with:
@@ -1824,7 +1833,7 @@ Description:
 add document chunks for rag
 ```
 The migration enables the PostgreSQL vector extension when needed and creates the document_chunks table with a vector(1536) embedding column.
-The development and test databases both require pgvector support.
+The development and test databases both require pgvector support. The latest locally verified Alembic head is `8636cfbbc134` and pgvector extension version was `0.8.2` in the local application database (October 2026).
 The Docker PostgreSQL image used by the project is:
 ```text
 pgvector/pgvector:pg16
@@ -1880,7 +1889,7 @@ npm audit
 
 The coverage report creates `backend/.coverage`, which is generated local test data and must not be committed. The symlink security test may be skipped on Windows when the OS does not permit symlink creation. A skip is not evidence that the symlink scenario passed; verify it in a compatible environment when possible.
 
-**Latest shared Phase 13 verification (October 2026):** 252 backend tests passed, 1 skipped; 51 frontend tests passed across 10 test files; measured overall backend coverage 90% and workflow-history service coverage 96%; frontend lint and production build passed; npm audit found 0 vulnerabilities. The newer file-access regression test still requires a recorded final full-suite run before merging.
+**Historical Phase 13 verification (October 2026):** 252 backend tests passed, 1 skipped; 51 frontend tests passed across 10 test files; measured overall backend coverage 90% and workflow-history service coverage 96%; frontend lint and production build passed; npm audit found 0 vulnerabilities. The newer file-access regression test still requires a recorded final full-suite run before merging.
 ### Health Tests
 Current health testing includes:
 * application health endpoint
@@ -2109,13 +2118,13 @@ Audit Log API: 10 passed
 Document API: 24 passed
 ```
 
-For current Phase 13 full-suite verification, run:
+To recheck the backend full suite, run:
 
 ```bash
 pytest -v
 ```
 
-and record the exact full-suite count from that run. See the Phase 13 verification snapshot above for the latest shared baseline.
+and record the exact full-suite count from that run. See the current-status section for the latest recorded Phase 14 backend run.
 
 Also verify backend formatting/linting and frontend production checks:
 
@@ -2258,7 +2267,7 @@ Workflow Document Review          ✅
 Audit Logs                        ✅
 ```
 
-Phase 13 testing and reliability work has been carried out. The next major phase is Phase 14 — Deployment / DevOps, after the final Phase 13 commit and merge.
+Phase 13 testing and reliability work has been merged. Phase 14 — Deployment / DevOps is underway; local Docker verification and GitHub Actions CI do not yet constitute a cloud production deployment.
 ---
 ## Supported Document Types
 DocuFlow is designed to support:
@@ -2301,8 +2310,8 @@ Phase 10 — RAG / Document Q&A                 ✅ Completed
 Phase 11 — Dashboard & Audit Logs              ✅ Completed
 Phase 12 — Frontend                            ✅ Implemented
 Phase 12.5 — MVP Workflow Completion & UI       ✅ Implemented
-Phase 13 — Testing & Reliability                ✅ Testing completed; merge pending
-Phase 14 — Deployment / DevOps                 ← Next
+Phase 13 — Testing & Reliability                ✅ Merged into main
+Phase 14 — Deployment / DevOps                 🔄 In progress (CI and local backend Docker verified)
 ```
 The project is developed incrementally, with each phase implemented, tested, reviewed, documented, and committed before the next major phase begins.
 ---
@@ -3264,7 +3273,7 @@ The review forms support an **embedded** mode that reuses document details loade
 
 ## Phase 13 — Testing & Reliability Completion Summary (October 2026)
 
-**Status:** Testing and hardening work completed; final post-change verification and merge pending. Phase 14 is next.
+**Status:** Testing and hardening work completed and merged into `main` (historical details and results below). Phase 14 is in progress.
 
 ### Scope and Improvements
 
@@ -3325,8 +3334,131 @@ npm audit
 - [x] npm dependency security issues resolved and audit clean
 - [x] Workflow history and document authorization test gaps addressed
 - [x] Existing concurrency and manual-review rollback tests reviewed
-- [ ] Run and record the final complete verification after all Phase 13 edits
-- [ ] Exclude generated `backend/.coverage` from version control
-- [ ] Commit and push `feature/phase-13-testing`; merge the reviewed pull request into `main`
+- [x] Phase 13 feature branch merged into `main` (PR #2)
+- [x] Generated backend coverage files excluded by root `.gitignore`
+- [x] Subsequent backend full regression verified during Phase 14 work: 262 passed, 1 skipped (before final database guard edit)
 
-**Next: Phase 14 — Deployment / DevOps.**
+**Next: Continue Phase 14 — Deployment / DevOps.**
+
+---
+
+## Phase 14 — Deployment / DevOps (In Progress, October 2026)
+
+Phase 14 is split into reviewable workstreams. **The application has not yet been deployed to a production cloud environment.** The current accomplishments are automated CI and a working local Docker backend connected to the existing PostgreSQL database.
+
+### 14.1–14.2 — Deployment Readiness and Continuous Integration
+
+- Reviewed FastAPI runtime settings, SQLAlchemy/Alembic database URLs, local document storage, frontend API configuration, and production deployment gaps.
+- Added `.github/workflows/ci.yml`, triggered for pull requests into `main` and pushes to `main`.
+- **Backend CI:** Python 3.12, PostgreSQL 16 with pgvector, dependency installation, Ruff lint/format, and pytest. A dummy test-only OpenAI key supports mocked API tests; real credentials are never required for CI.
+- **Frontend CI:** Node.js 22, `npm ci`, Oxlint, Vitest, and TypeScript/Vite production build. `VITE_API_BASE_URL` is configured for the CI job.
+- Both CI jobs passed in PR #5, merged into `main`. Requiring passing checks before merging is a separate branch-protection setting and still needs verification/configuration.
+
+### 14.3 — Production Settings and Local Backend Docker
+
+The work is under development on `feature/phase-14-production-config`; do not treat it as merged until its pull request and CI finish.
+
+**Configuration**
+
+- `backend/app/core/config.py` validates `APP_ENV` (`development`, `testing`, `production`) and rejects debug mode in production.
+- `CORS_ALLOWED_ORIGINS` is a JSON array of frontend origins. Production configuration requires explicit HTTPS origins and rejects wildcard values.
+- Production checks a non-placeholder JWT secret of at least 32 characters. Secrets must be supplied at runtime, not committed.
+- `TEST_DATABASE_URL` is optional for application startup but required by the database-backed test suite.
+- `backend/app/main.py` passes `settings.cors_allowed_origins` into FastAPI's existing CORS middleware.
+- Tests in `backend/tests/test_production_config.py` verified nine configuration scenarios.
+- The integration-test setup rejects a missing test URL and has a same-database guard under implementation. The URL comparison is defense-in-depth, not a substitute for isolated test infrastructure and restricted credentials.
+
+**Docker files**
+
+- `backend/Dockerfile` builds from `python:3.12-slim`, installs dependencies from `requirements.txt`, copies FastAPI and Alembic files, uses a non-root `appuser`, and runs Uvicorn on port 8000 without `--reload`.
+- `backend/.dockerignore` excludes `.env` files, uploaded documents, local virtual environments, caches, tests, and other development artifacts from the `backend/` build context.
+- Root `.gitignore` excludes `.env` and `.env.*` while retaining `.env.example`.
+
+**Local Docker verification** (from repository root, PowerShell)
+
+Start the existing database using the project's Compose configuration:
+
+```powershell
+docker compose up -d
+```
+
+Build the backend image:
+
+```powershell
+docker build -t docuflow-backend:dev -f backend/Dockerfile backend
+```
+
+Create a local Docker environment file from your existing backend `.env` (never commit either file):
+
+```powershell
+Copy-Item backend/.env backend/.env.docker.local
+```
+
+In `backend/.env.docker.local`, set `APP_ENV=development`, `APP_DEBUG=false`, and a valid `DATABASE_URL` pointing to `host.docker.internal:5434` when using Docker Desktop and the locally published PostgreSQL port. Keep the actual local username/password in that **ignored** file, not in documentation or shell arguments. Maintain a **separate** `docuflow_test` database if configuring `TEST_DATABASE_URL`; do not point it to `docuflow_db`.
+
+Run the backend container:
+
+```powershell
+docker run -d `
+  --name docuflow-backend-local `
+  -p 8000:8000 `
+  --env-file backend/.env.docker.local `
+  docuflow-backend:dev
+```
+
+Inspect startup and test application health:
+
+```powershell
+docker ps -a --filter "name=docuflow-backend-local"
+docker logs --tail 30 docuflow-backend-local
+Invoke-RestMethod http://localhost:8000/health
+```
+
+Verify SQLAlchemy can actually query the database:
+
+```powershell
+docker exec docuflow-backend-local python -c "from sqlalchemy import text; from app.db.database import engine; c = engine.connect(); print('PostgreSQL connection:', c.execute(text('SELECT 1')).scalar()); c.close()"
+```
+
+Check the schema revision without applying migrations:
+
+```powershell
+docker exec docuflow-backend-local alembic current
+```
+
+If recreating the local backend container, remove **only** that container with `docker rm -f docuflow-backend-local`, then rerun `docker run`. Do not remove the PostgreSQL container or its persistent volume.
+
+**Observed local results**
+
+| Verification | Observed result |
+| --- | --- |
+| Docker image build | Successful (`docuflow-backend:dev`, ~404 MB at verification) |
+| Container process | Non-root `appuser`, Uvicorn on `0.0.0.0:8000` |
+| `GET /health` | Healthy response |
+| SQLAlchemy `SELECT 1` | `PostgreSQL connection: 1` |
+| PostgreSQL pgvector extension | `0.8.2` |
+| Alembic current / only head | `8636cfbbc134 (head)` |
+| Backend Ruff lint | Passed |
+| Backend Ruff format | 128 files formatted |
+| Latest recorded local pytest run | 262 passed, 1 skipped, before newest test-database guard edit |
+
+**Production limitations / pending deployment tasks**
+
+- The filesystem storage implementation still writes to local `uploads/`; container-local uploads are not durable across replacement or scaling. Production requires persistent private document storage and authorization-preserving file access.
+- Managed PostgreSQL configuration, TLS, migration execution strategy, backups, and restoration testing have not been completed for production.
+- The frontend and backend have not yet been deployed to Vercel/Render, and automated continuous deployment has not been implemented.
+- Restrict CORS to the actual deployed frontend origin; check secrets, production debug mode, HTTPS, and account permissions before release.
+- Run post-deployment smoke tests and cross-role employee/manager/admin flows; implement monitoring and operational recovery.
+- The initial Docker image includes development/test dependencies from `requirements.txt`; plan a production dependency split and pin the currently unpinned Python `pgvector` package before release.
+
+### Phase 14.3 Closing Checklist
+
+- [x] Validate environment-specific configuration and add focused tests
+- [x] Connect FastAPI CORS to validated settings
+- [x] Build a backend Docker image and verify the non-root runtime
+- [x] Verify local API health, PostgreSQL SQL query, pgvector extension, and Alembic head
+- [x] Protect `.env.docker.local` with `.gitignore`
+- [ ] Verify the latest database safety guard and rerun full regression suite
+- [ ] Review final README and staged Git diff for secrets or unintended files
+- [ ] Open production-configuration pull request, confirm both CI jobs pass, and merge to `main`
+- [ ] Continue to hosted database, persistent storage, cloud deployment, and monitoring in subsequent Phase 14 workstreams
