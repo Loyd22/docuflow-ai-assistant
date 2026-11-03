@@ -1,12 +1,13 @@
 """Integration tests for original document viewing and downloading."""
 
 from pathlib import Path
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.enums import UserRole, WorkflowStatus
+from app.db.enums import DocumentStatus, UserRole, WorkflowStatus
 from app.db.models.document import Document
 from app.db.models.user import User
 from app.db.models.workflow import Workflow
@@ -569,3 +570,417 @@ def test_manager_cannot_access_document_without_workflow(
 
     # A manager has no automatic access to unrelated uploads.
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize("action", ["view", "download"])
+def test_file_response_cleans_up_temporary_file(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    action: str,
+) -> None:
+    """Clean up temporary files after sending the response."""
+
+    token, _ = create_test_user(
+        client,
+        db_session,
+        email=f"cleanup-{action}@example.com",
+    )
+
+    document_id = upload_test_document(
+        client,
+        token=token,
+    )
+
+    temporary_file = tmp_path / f"temporary-{action}.txt"
+    content = b"Private temporary document"
+    temporary_file.write_bytes(content)
+
+    authorized_file = MagicMock()
+    authorized_file.path = temporary_file
+    authorized_file.original_file_name = "invoice.txt"
+    authorized_file.mime_type = "text/plain"
+
+    def cleanup() -> None:
+        """Remove the temporary file."""
+        temporary_file.unlink(missing_ok=True)
+
+    authorized_file.cleanup.side_effect = cleanup
+
+    with patch(
+        "app.api.routes.document_routes.get_authorized_original_file",
+        return_value=authorized_file,
+    ):
+        response = client.get(
+            f"/documents/{document_id}/{action}",
+            headers=auth_headers(token),
+        )
+
+    assert response.status_code == 200
+    assert response.content == content
+    authorized_file.cleanup.assert_called_once()
+    assert not temporary_file.exists()
+
+
+def test_docx_preview_rejection_cleans_up_temporary_file(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+) -> None:
+    """Clean up a temporary DOCX when preview is rejected."""
+
+    token, _ = create_test_user(
+        client,
+        db_session,
+        email="cleanup-docx-preview@example.com",
+    )
+
+    document_id = upload_test_document(
+        client,
+        token=token,
+        filename="contract.docx",
+    )
+
+    temporary_file = tmp_path / "temporary-contract.docx"
+    temporary_file.write_bytes(b"Temporary document")
+
+    authorized_file = MagicMock()
+    authorized_file.path = temporary_file
+    authorized_file.original_file_name = "contract.docx"
+    authorized_file.mime_type = (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    authorized_file.cleanup.side_effect = lambda: temporary_file.unlink(missing_ok=True)
+
+    with patch(
+        "app.api.routes.document_routes.get_authorized_original_file",
+        return_value=authorized_file,
+    ):
+        response = client.get(
+            f"/documents/{document_id}/view",
+            headers=auth_headers(token),
+        )
+
+    assert response.status_code == 415
+    authorized_file.cleanup.assert_called_once()
+    assert not temporary_file.exists()
+
+
+def test_document_lifecycle_uses_configured_storage(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """Upload, process, view, and download the same document."""
+
+    token, _ = create_test_user(
+        client,
+        db_session,
+        email="storage-lifecycle@example.com",
+    )
+
+    content = b"DocuFlow storage lifecycle integration test."
+
+    # Upload using the configured storage provider.
+    document_id = upload_test_document(
+        client,
+        token=token,
+        filename="lifecycle.txt",
+        content=content,
+    )
+
+    headers = auth_headers(token)
+
+    # Extract text from the uploaded document.
+    process_response = client.post(
+        f"/documents/{document_id}/process",
+        headers=headers,
+    )
+
+    assert process_response.status_code == 200
+    assert process_response.json()["status"] == "text_extracted"
+
+    # Verify the extracted text was saved in PostgreSQL.
+    db_session.expire_all()
+
+    processed_document = db_session.get(Document, document_id)
+
+    assert processed_document is not None
+    assert processed_document.status == DocumentStatus.TEXT_EXTRACTED
+    assert processed_document.extracted_text == content.decode()
+
+    # Preview the original document.
+    view_response = client.get(
+        f"/documents/{document_id}/view",
+        headers=headers,
+    )
+
+    assert view_response.status_code == 200
+    assert view_response.content == content
+    assert view_response.headers["content-disposition"].startswith("inline;")
+
+    # Download the original document.
+    download_response = client.get(
+        f"/documents/{document_id}/download",
+        headers=headers,
+    )
+
+    assert download_response.status_code == 200
+    assert download_response.content == content
+    assert download_response.headers["content-disposition"].startswith("attachment;")
+
+    # Confirm the original file remains stored.
+    document = db_session.get(Document, document_id)
+
+    assert document is not None
+
+    stored_path = file_storage.get_stored_file_path(
+        document.stored_file_name,
+    )
+
+    assert stored_path.read_bytes() == content
+
+
+@pytest.mark.parametrize("endpoint", ["view", "download"])
+@pytest.mark.parametrize(
+    ("document_provider", "default_provider"),
+    [
+        ("local", "supabase"),
+        ("supabase", "local"),
+    ],
+)
+def test_file_access_uses_document_storage_provider(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    endpoint: str,
+    document_provider: str,
+    default_provider: str,
+) -> None:
+    """Retrieve documents using their saved provider."""
+
+    from app.core.config import settings
+
+    token, _ = create_test_user(
+        client,
+        db_session,
+        email=(f"mixed-{document_provider}-{endpoint}@example.com"),
+    )
+
+    content = b"Provider-specific document content"
+
+    document_id = upload_test_document(
+        client,
+        token=token,
+        filename="provider-test.txt",
+        content=content,
+    )
+
+    # Simulate an existing document stored by this provider.
+    document = db_session.get(Document, document_id)
+
+    assert document is not None
+
+    document.storage_provider = document_provider
+    db_session.commit()
+
+    # The application default is intentionally different.
+    monkeypatch.setattr(
+        settings,
+        "storage_provider",
+        default_provider,
+    )
+
+    storage = MagicMock()
+
+    # Simulate downloading the original file.
+    storage.download_to_path.side_effect = lambda key, destination: (
+        destination.write_bytes(content)
+    )
+
+    with patch(
+        "app.api.routes.document_routes.get_document_storage_for_provider",
+        return_value=storage,
+    ) as resolver:
+        response = client.get(
+            f"/documents/{document_id}/{endpoint}",
+            headers=auth_headers(token),
+        )
+
+    assert response.status_code == 200
+    assert response.content == content
+
+    # The persisted provider must win over the default.
+    resolver.assert_called_once_with(document_provider)
+
+    storage.download_to_path.assert_called_once()
+
+
+@pytest.mark.parametrize("endpoint", ["view", "download"])
+def test_unauthorized_file_access_never_resolves_provider(
+    client: TestClient,
+    db_session: Session,
+    endpoint: str,
+) -> None:
+    """Unauthorized users cannot initialize document storage."""
+
+    owner_token, _ = create_test_user(
+        client,
+        db_session,
+        email=f"storage-owner-{endpoint}@example.com",
+    )
+
+    other_token, _ = create_test_user(
+        client,
+        db_session,
+        email=f"storage-other-{endpoint}@example.com",
+    )
+
+    document_id = upload_test_document(
+        client,
+        token=owner_token,
+        filename="private.txt",
+        content=b"Confidential document",
+    )
+
+    document = db_session.get(Document, document_id)
+
+    assert document is not None
+
+    document.storage_provider = "supabase"
+    db_session.commit()
+
+    with patch(
+        "app.api.routes.document_routes.get_document_storage_for_provider",
+    ) as resolver:
+        response = client.get(
+            f"/documents/{document_id}/{endpoint}",
+            headers=auth_headers(other_token),
+        )
+
+    assert response.status_code == 403
+
+    # Authorization must happen before cloud initialization.
+    resolver.assert_not_called()
+
+
+@pytest.mark.parametrize("endpoint", ["view", "download"])
+def test_missing_supabase_object_returns_404(
+    client: TestClient,
+    db_session: Session,
+    endpoint: str,
+) -> None:
+    """Return 404 when a cloud document's original object is missing."""
+
+    token, _ = create_test_user(
+        client,
+        db_session,
+        email=f"missing-cloud-{endpoint}@example.com",
+    )
+
+    # Create a document using the existing test upload helper.
+    document_id = upload_test_document(
+        client,
+        token=token,
+        filename="missing-cloud.txt",
+        content=b"Temporary test document.",
+    )
+
+    document = db_session.get(Document, document_id)
+    assert document is not None
+
+    # Simulate a document originally stored in Supabase.
+    document.storage_provider = "supabase"
+    db_session.commit()
+
+    storage = MagicMock()
+
+    # Simulate the adapter reporting a missing cloud object.
+    storage.download_to_path.side_effect = FileNotFoundError(
+        "Original document file not found."
+    )
+
+    with patch(
+        "app.api.routes.document_routes.get_document_storage_for_provider",
+        return_value=storage,
+    ) as resolver:
+        response = client.get(
+            f"/documents/{document_id}/{endpoint}",
+            headers=auth_headers(token),
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == ("Original document file not found.")
+
+    # Confirm the document's recorded provider was selected.
+    resolver.assert_called_once_with("supabase")
+
+    # Confirm that retrieval was actually attempted.
+    storage.download_to_path.assert_called_once_with(
+        document.stored_file_name,
+        ANY,
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["view", "download"])
+def test_supabase_outage_returns_safe_error(
+    client: TestClient,
+    db_session: Session,
+    endpoint: str,
+) -> None:
+    """A cloud outage must not expose internal error details."""
+
+    token, _ = create_test_user(
+        client,
+        db_session,
+        email=f"cloud-outage-{endpoint}@example.com",
+    )
+
+    document_id = upload_test_document(
+        client,
+        token=token,
+        filename="outage-test.txt",
+        content=b"Cloud outage testing.",
+    )
+
+    document = db_session.get(Document, document_id)
+    assert document is not None
+
+    # Simulate an existing cloud-backed document.
+    document.storage_provider = "supabase"
+    db_session.commit()
+
+    storage = MagicMock()
+
+    # Simulate an unexpected cloud storage failure.
+    sensitive_error = (
+        "Supabase connection failed: authorization=Bearer example-sensitive-token"
+    )
+
+    storage.download_to_path.side_effect = RuntimeError(sensitive_error)
+
+    with patch(
+        "app.api.routes.document_routes.get_document_storage_for_provider",
+        return_value=storage,
+    ) as resolver:
+        response = client.get(
+            f"/documents/{document_id}/{endpoint}",
+            headers=auth_headers(token),
+        )
+
+    # The API must return a controlled server error.
+    assert response.status_code == 500
+
+    assert response.json()["detail"] == ("Original document storage is invalid.")
+
+    # Never expose internal SDK errors in the HTTP response.
+    assert "example-sensitive-token" not in response.text
+    assert "authorization" not in response.text.lower()
+
+    resolver.assert_called_once_with("supabase")
+    storage.download_to_path.assert_called_once()
+
+    # Cloud failures must not modify document metadata.
+    db_session.refresh(document)
+
+    assert document.storage_provider == "supabase"
+    assert document.status.value == "uploaded"

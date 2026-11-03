@@ -1,11 +1,16 @@
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.enums import DocumentType, UserRole
+from app.ai.exceptions import (
+    AIClassificationError,
+    AIExtractionError,
+    AIQuestionAnsweringError,
+)
+from app.db.enums import DocumentStatus, DocumentType, UserRole
 from app.db.models.document import Document
 from app.db.models.document_chunk import DocumentChunk
 from app.db.models.user import User
@@ -107,9 +112,15 @@ def test_upload_document_success(
     assert document.uploaded_by == response_data["uploaded_by"]
 
     # Verify that the physical file was actually stored.
-    stored_file_path = Path(document.file_path)
 
-    assert stored_file_path.exists()
+    # Verify the file was stored using its storage key.
+    assert document.file_path == document.stored_file_name
+
+    stored_file_path = tmp_path / document.stored_file_name
+
+    assert stored_file_path.is_file()
+    assert stored_file_path.read_bytes() == b"test invoice content"
+
     assert stored_file_path.read_bytes() == b"test invoice content"
 
 
@@ -1175,3 +1186,434 @@ def test_get_document_details_requires_authentication(
     )
 
     assert response.status_code in (401, 403)
+
+
+@pytest.mark.parametrize(
+    ("document_provider", "default_provider"),
+    [
+        ("local", "supabase"),
+        ("supabase", "local"),
+    ],
+)
+def test_processing_uses_document_storage_provider(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    document_provider: str,
+    default_provider: str,
+) -> None:
+    """Process files using their saved provider, not the default."""
+
+    from app.core.config import settings
+
+    # Keep test uploads outside the real uploads directory.
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    access_token = register_and_login(
+        client,
+        email=f"process-{document_provider}@example.com",
+    )
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+    }
+
+    content = b"DocuFlow provider-aware processing test."
+
+    # Create a document through the actual upload endpoint.
+    upload_response = client.post(
+        "/documents",
+        headers=headers,
+        files={
+            "uploaded_file": (
+                "provider-document.txt",
+                content,
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    document = db_session.get(Document, document_id)
+    assert document is not None
+
+    # Simulate a document originally stored by this provider.
+    document.storage_provider = document_provider
+    db_session.commit()
+
+    # Set the global default to a different provider.
+    monkeypatch.setattr(
+        settings,
+        "storage_provider",
+        default_provider,
+    )
+
+    storage = MagicMock()
+
+    # Simulate retrieving the original object.
+    def download_document(
+        storage_key: str,
+        destination: Path,
+    ) -> None:
+        assert storage_key == document.stored_file_name
+        destination.write_bytes(content)
+
+    storage.download_to_path.side_effect = download_document
+
+    with patch(
+        "app.api.routes.document_routes.get_document_storage_for_provider",
+        return_value=storage,
+    ) as resolver:
+        process_response = client.post(
+            f"/documents/{document_id}/process",
+            headers=headers,
+        )
+
+    assert process_response.status_code == 200
+    assert process_response.json()["status"] == "text_extracted"
+
+    # The recorded document provider must be selected.
+    resolver.assert_called_once_with(document_provider)
+
+    storage.download_to_path.assert_called_once()
+
+    # Verify the result persisted in PostgreSQL.
+    db_session.refresh(document)
+
+    assert document.status.value == "text_extracted"
+    assert document.extracted_text == content.decode()
+    assert document.storage_provider == document_provider
+
+
+def test_unauthorized_processing_does_not_resolve_storage(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject unauthorized processing before contacting storage."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    owner_token = register_and_login(
+        client,
+        email="processing-storage-owner@example.com",
+    )
+
+    other_token = register_and_login(
+        client,
+        email="processing-storage-other@example.com",
+    )
+
+    upload_response = client.post(
+        "/documents",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        files={
+            "uploaded_file": (
+                "private.txt",
+                b"Private document content.",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    document = db_session.get(Document, document_id)
+    assert document is not None
+
+    document.storage_provider = "supabase"
+    db_session.commit()
+
+    with patch(
+        "app.api.routes.document_routes.get_document_storage_for_provider",
+    ) as resolver:
+        response = client.post(
+            f"/documents/{document_id}/process",
+            headers={
+                "Authorization": f"Bearer {other_token}",
+            },
+        )
+
+    assert response.status_code == 403
+
+    # Unauthorized users must not initialize cloud storage.
+    resolver.assert_not_called()
+
+    # Rejected processing must not change the document status.
+    db_session.refresh(document)
+    assert document.status.value == "uploaded"
+
+
+@pytest.mark.parametrize(
+    "configuration_error",
+    [
+        "Supabase Storage credentials are missing.",
+        "Unsupported storage provider: unknown",
+    ],
+)
+def test_processing_storage_configuration_failure_returns_503(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    configuration_error: str,
+) -> None:
+    """Storage configuration failure must not begin processing."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    access_token = register_and_login(
+        client,
+        email="storage-config-test@example.com",
+    )
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+    }
+
+    # Upload a valid document using local storage.
+    upload_response = client.post(
+        "/documents",
+        headers=headers,
+        files={
+            "uploaded_file": (
+                "storage-test.txt",
+                b"Document processing configuration test.",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    document = db_session.get(Document, document_id)
+    assert document is not None
+
+    # Simulate a previously uploaded Supabase document.
+    document.storage_provider = "supabase"
+    db_session.commit()
+
+    # Simulate failure while resolving its storage provider.
+    with patch(
+        "app.api.routes.document_routes.get_document_storage_for_provider",
+        side_effect=ValueError(configuration_error),
+    ) as resolver:
+        response = client.post(
+            f"/documents/{document_id}/process",
+            headers=headers,
+        )
+
+    # Do not expose internal configuration details.
+    assert response.status_code == 503
+    assert response.json()["detail"] == ("Document storage is not configured.")
+
+    resolver.assert_called_once_with("supabase")
+
+    # Processing must not modify document state.
+    db_session.refresh(document)
+
+    assert document.status.value == "uploaded"
+    assert document.extracted_text is None
+
+
+@pytest.mark.parametrize(
+    "failure_stage",
+    ["classification", "extraction"],
+)
+def test_analyze_provider_failure_returns_safe_error(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    """AI provider failures must not expose secrets in HTTP responses."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    sensitive_marker = "FAKE_SECRET_DO_NOT_EXPOSE_123"
+
+    token = register_and_login(
+        client,
+        email=f"ai-failure-{failure_stage}@example.com",
+    )
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Create a valid document through FastAPI.
+    upload_response = client.post(
+        "/documents",
+        headers=headers,
+        files={
+            "uploaded_file": (
+                "invoice.txt",
+                b"Invoice Number: INV-001",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    document = db_session.get(Document, document_id)
+    assert document is not None
+
+    # Prepare the document for AI analysis.
+    document.status = DocumentStatus.TEXT_EXTRACTED
+    document.extracted_text = "Invoice Number: INV-001"
+    db_session.commit()
+
+    # Prevent creation of a real OpenAI client.
+    monkeypatch.setattr(
+        "app.api.routes.document_routes.create_openai_client",
+        lambda: Mock(),
+    )
+
+    # Choose which AI operation fails.
+    if failure_stage == "classification":
+        monkeypatch.setattr(
+            "app.ai.classifier.DocumentClassifier.classify",
+            Mock(
+                side_effect=AIClassificationError(
+                    f"Provider error: authorization=Bearer {sensitive_marker}"
+                )
+            ),
+        )
+
+    else:
+        monkeypatch.setattr(
+            "app.ai.classifier.DocumentClassifier.classify",
+            lambda self, document_text: DocumentClassification(
+                document_type=DocumentType.INVOICE,
+                confidence=0.98,
+            ),
+        )
+
+        monkeypatch.setattr(
+            "app.ai.extractor.InvoiceExtractor.extract",
+            Mock(
+                side_effect=AIExtractionError(
+                    f"Provider error: authorization=Bearer {sensitive_marker}"
+                )
+            ),
+        )
+
+    # Exercise the actual API exception boundary.
+    response = client.post(
+        f"/documents/{document_id}/analyze",
+        headers=headers,
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Document AI analysis failed."
+
+    # Internal provider details must not reach the frontend.
+    assert sensitive_marker not in response.text
+    assert "authorization=Bearer" not in response.text
+
+    # An AI failure must be recorded in the document state.
+    db_session.refresh(document)
+
+    assert document.status == DocumentStatus.AI_PROCESSING_FAILED
+
+
+def test_question_answering_provider_failure_returns_safe_error(
+    client: TestClient,
+    db_session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Question-answering failures must return a safe HTTP error."""
+
+    monkeypatch.setattr(
+        "app.storage.file_storage.UPLOAD_DIRECTORY",
+        tmp_path,
+    )
+
+    sensitive_marker = "FAKE_SECRET_DO_NOT_EXPOSE_123"
+
+    token = register_and_login(
+        client,
+        email="qa-provider-failure@example.com",
+    )
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    upload_response = client.post(
+        "/documents",
+        headers=headers,
+        files={
+            "uploaded_file": (
+                "policy.txt",
+                b"Employees receive 15 days of annual leave.",
+                "text/plain",
+            ),
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    document_id = upload_response.json()["id"]
+
+    document = db_session.get(Document, document_id)
+    assert document is not None
+
+    original_status = document.status
+
+    monkeypatch.setattr(
+        "app.api.routes.document_routes.create_openai_client",
+        lambda: Mock(),
+    )
+
+    # Simulate an error from the Q&A service.
+    monkeypatch.setattr(
+        "app.services.document_qa_service.DocumentQAService.answer_question",
+        Mock(
+            side_effect=AIQuestionAnsweringError(
+                f"Provider error: authorization=Bearer {sensitive_marker}"
+            )
+        ),
+    )
+
+    response = client.post(
+        f"/documents/{document_id}/ask",
+        headers=headers,
+        json={
+            "question": "How many annual leave days do employees receive?",
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == ("Document question answering failed.")
+
+    # The response must not expose provider exception details.
+    assert sensitive_marker not in response.text
+    assert "authorization=Bearer" not in response.text
+
+    # A Q&A failure should not change document status.
+    db_session.refresh(document)
+
+    assert document.status == original_status

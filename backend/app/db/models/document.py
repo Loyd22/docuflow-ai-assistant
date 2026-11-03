@@ -57,6 +57,13 @@ class Document(Base):
         nullable=False,
     )
 
+    storage_provider: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="local",
+        server_default="local",
+    )
+
     mime_type: Mapped[str] = mapped_column(
         String(100),
         nullable=False,

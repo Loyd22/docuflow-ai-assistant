@@ -89,22 +89,36 @@ def test_invoice_extractor_rejects_missing_parsed_result() -> None:
         extractor.extract("Invoice Number: INV-001")
 
 
-def test_invoice_extractor_converts_provider_error() -> None:
-    """Provider failures should become AIExtractionError."""
+def test_invoice_extractor_converts_provider_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Convert provider failures without logging sensitive details."""
+
+    sensitive_marker = "FAKE_SECRET_DO_NOT_LOG_123"
 
     mock_client = Mock()
 
-    mock_client.responses.parse.side_effect = RuntimeError("Provider unavailable")
-
-    extractor = InvoiceExtractor(
-        client=mock_client,
+    mock_client.responses.parse.side_effect = RuntimeError(
+        f"Provider failed: authorization=Bearer {sensitive_marker}"
     )
+
+    extractor = InvoiceExtractor(client=mock_client)
 
     with pytest.raises(
         AIExtractionError,
         match="Invoice extraction failed",
     ):
         extractor.extract("Invoice Number: INV-001")
+
+    # Keep an identifiable application log.
+    assert "Invoice extraction provider call failed." in caplog.text
+
+    # Prevent sensitive provider information from reaching logs.
+    assert sensitive_marker not in caplog.text
+    assert "authorization=Bearer" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+    mock_client.responses.parse.assert_called_once()
 
 
 def test_invoice_extractor_allows_missing_optional_fields() -> None:

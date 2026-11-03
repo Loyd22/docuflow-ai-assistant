@@ -71,19 +71,33 @@ def test_classifier_rejects_missing_parsed_result() -> None:
         classifier.classify("Invoice Number: INV-001")
 
 
-def test_classifier_converts_provider_error() -> None:
-    """Provider errors should become AIClassificationError."""
+def test_classifier_converts_provider_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Convert provider failures without logging sensitive details."""
+
+    sensitive_marker = "FAKE_SECRET_DO_NOT_LOG_123"
 
     mock_client = Mock()
 
-    mock_client.responses.parse.side_effect = RuntimeError("Provider unavailable")
-
-    classifier = DocumentClassifier(
-        client=mock_client,
+    mock_client.responses.parse.side_effect = RuntimeError(
+        f"Provider failed: authorization=Bearer {sensitive_marker}"
     )
+
+    classifier = DocumentClassifier(client=mock_client)
 
     with pytest.raises(
         AIClassificationError,
         match="Document classification failed",
     ):
         classifier.classify("Invoice Number: INV-001")
+
+    # Preserve a useful diagnostic message.
+    assert "Document classification provider call failed." in caplog.text
+
+    # Never log the original provider exception or its credentials.
+    assert sensitive_marker not in caplog.text
+    assert "authorization=Bearer" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+    mock_client.responses.parse.assert_called_once()

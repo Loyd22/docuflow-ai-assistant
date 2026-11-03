@@ -52,5 +52,6 @@ typing_extensions==4.16.0
 tzdata==2026.3
 uvicorn==0.51.0
 watchfiles==1.2.0
-websockets==16.1.1
+websockets==15.0.1
 pgvector
+supabase==2.33.0

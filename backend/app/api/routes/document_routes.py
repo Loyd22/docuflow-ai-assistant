@@ -8,6 +8,7 @@ and delegate business logic to the document service layer.
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.ai.classifier import DocumentClassifier
 from app.ai.client import create_openai_client
@@ -22,6 +23,7 @@ from app.ai.exceptions import (
 from app.ai.extractor import InvoiceExtractor
 from app.ai.qa_generator import DocumentQAGenerator
 from app.api.dependencies import get_current_user
+from app.core.config import settings
 from app.db.models.user import User
 from app.db.session import get_db_session
 from app.processing.exceptions import DocumentProcessingError
@@ -54,6 +56,8 @@ from app.services.document_service import (
     upload_document,
 )
 from app.services.workflow_service import WorkflowService
+from app.storage.base import DocumentStorage
+from app.storage.factory import get_document_storage, get_document_storage_for_provider
 
 router = APIRouter(
     prefix="/documents",
@@ -66,13 +70,15 @@ def get_authorized_original_file(
     current_user: User,
     database_session: Session,
 ):
-    """Locate the original file after checking user permissions."""
+    """Retrieve the original file using its saved storage provider."""
 
     service = DocumentFileAccessService(
         database_session=database_session,
+        storage_resolver=get_document_storage_for_provider,
     )
 
     try:
+        # The service authorizes the user before resolving storage.
         return service.get_authorized_file(
             document_id=document_id,
             current_user=current_user,
@@ -103,7 +109,7 @@ def view_original_document(
     current_user: User = Depends(get_current_user),
     database_session: Session = Depends(get_db_session),
 ) -> FileResponse:
-    """Open an authorized original document in the browser."""
+    """Preview an authorized document from its original provider."""
 
     original_file = get_authorized_original_file(
         document_id=document_id,
@@ -111,10 +117,12 @@ def view_original_document(
         database_session=database_session,
     )
 
-    # Only allow supported preview types.
+    # Only PDF and TXT documents support browser preview.
     extension = original_file.path.suffix.lower()
 
     if extension not in {".pdf", ".txt"}:
+        original_file.cleanup()
+
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Preview is supported only for PDF and TXT files.",
@@ -124,13 +132,19 @@ def view_original_document(
         "application/pdf" if extension == ".pdf" else "text/plain; charset=utf-8"
     )
 
-    return FileResponse(
-        path=original_file.path,
-        media_type=media_type,
-        content_disposition_type="inline",
-        filename=original_file.original_file_name,
-        headers={"X-Content-Type-Options": "nosniff"},
-    )
+    try:
+        return FileResponse(
+            path=original_file.path,
+            media_type=media_type,
+            content_disposition_type="inline",
+            filename=original_file.original_file_name,
+            headers={"X-Content-Type-Options": "nosniff"},
+            background=BackgroundTask(original_file.cleanup),
+        )
+
+    except Exception:
+        original_file.cleanup()
+        raise
 
 
 @router.get("/{document_id}/download")
@@ -139,7 +153,7 @@ def download_original_document(
     current_user: User = Depends(get_current_user),
     database_session: Session = Depends(get_db_session),
 ) -> FileResponse:
-    """Download an authorized original uploaded document."""
+    """Download an authorized file from its original storage provider."""
 
     original_file = get_authorized_original_file(
         document_id=document_id,
@@ -147,14 +161,19 @@ def download_original_document(
         database_session=database_session,
     )
 
-    # Downloads are always returned as attachments.
-    return FileResponse(
-        path=original_file.path,
-        media_type="application/octet-stream",
-        filename=original_file.original_file_name,
-        content_disposition_type="attachment",
-        headers={"X-Content-Type-Options": "nosniff"},
-    )
+    try:
+        return FileResponse(
+            path=original_file.path,
+            media_type="application/octet-stream",
+            filename=original_file.original_file_name,
+            content_disposition_type="attachment",
+            headers={"X-Content-Type-Options": "nosniff"},
+            background=BackgroundTask(original_file.cleanup),
+        )
+
+    except Exception:
+        original_file.cleanup()
+        raise
 
 
 @router.post(
@@ -166,6 +185,7 @@ def create_document_upload(
     uploaded_file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     database_session: Session = Depends(get_db_session),
+    storage: DocumentStorage = Depends(get_document_storage),
 ) -> DocumentResponse:
     """Upload a document for the authenticated user."""
 
@@ -174,6 +194,8 @@ def create_document_upload(
             database_session,
             uploaded_file=uploaded_file,
             uploaded_by=current_user.id,
+            storage=storage,
+            storage_provider=settings.storage_provider,
         )
 
         return DocumentResponse.model_validate(document)
@@ -194,7 +216,7 @@ def process_uploaded_document(
     current_user: User = Depends(get_current_user),
     database_session: Session = Depends(get_db_session),
 ) -> DocumentResponse:
-    """Process an uploaded document and extract its text."""
+    """Process a document using its original storage provider."""
 
     document = get_document_by_id(
         database_session,
@@ -207,16 +229,32 @@ def process_uploaded_document(
             detail="Document not found.",
         )
 
+    # Only the document owner can process it.
     if document.uploaded_by != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not allowed to process this document.",
         )
 
+    # Select the provider recorded in PostgreSQL.
+
     try:
+        # Resolve storage before changing document status.
+        document_storage = get_document_storage_for_provider(document.storage_provider)
+
+    except ValueError as error:
+        # Do not expose credentials or internal configuration details.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document storage is not configured.",
+        ) from error
+
+    try:
+        # Download and extract using the correct storage provider.
         processed_document = process_document(
             database_session,
             document,
+            storage=document_storage,
         )
 
     except DocumentProcessingError as error:

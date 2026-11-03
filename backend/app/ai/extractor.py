@@ -31,7 +31,8 @@ class InvoiceExtractor:
             )
 
         except Exception as error:
-            logger.exception("Invoice extraction provider call failed.")
+            # Avoid logging raw provider exceptions containing sensitive data.
+            logger.error("Invoice extraction provider call failed.")
 
             raise AIExtractionError("Invoice extraction failed.") from error
 
