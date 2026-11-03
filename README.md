@@ -3462,3 +3462,94 @@ If recreating the local backend container, remove **only** that container with `
 - [ ] Review final README and staged Git diff for secrets or unintended files
 - [ ] Open production-configuration pull request, confirm both CI jobs pass, and merge to `main`
 - [ ] Continue to hosted database, persistent storage, cloud deployment, and monitoring in subsequent Phase 14 workstreams
+
+
+## Phase 14.4 — Supabase Cloud Storage Integration
+
+### Overview
+
+DocuFlow AI supports two document storage providers:
+
+- **Local storage:** Files are stored on the backend filesystem for local development.
+- **Supabase Storage:** Files are stored in a private cloud storage bucket.
+
+The storage provider is configured using `STORAGE_PROVIDER`.
+
+New document records persist their storage provider so that file processing, preview, and download operations can use the correct storage backend.
+
+### Configuration
+
+The following environment variables configure document storage:
+
+```dotenv
+STORAGE_PROVIDER=local
+
+# Required when STORAGE_PROVIDER=supabase
+SUPABASE_URL=
+SUPABASE_SECRET_KEY=
+SUPABASE_STORAGE_BUCKET=docuflow-documents
+```
+
+For cloud deployment, set `STORAGE_PROVIDER=supabase` and configure the Supabase credentials using the hosting platform's secret management or environment-variable settings.
+
+Never commit actual Supabase credentials to Git or expose the secret key in frontend code.
+
+### Storage Architecture
+
+The backend uses a storage abstraction to separate document operations from storage-provider implementations.
+
+Key modules:
+
+- `backend/app/storage/base.py` — storage interface
+- `backend/app/storage/local_storage.py` — local filesystem implementation
+- `backend/app/storage/supabase_storage.py` — Supabase Storage implementation
+- `backend/app/storage/factory.py` — storage-provider resolution
+
+Application services remain responsible for document processing and authorization.
+
+### Database Migration
+
+Migration `50266c3b2d03` adds `storage_provider` to the `documents` table.
+
+The provider is saved with each document and used when resolving its storage backend.
+
+Apply migrations to a new deployment database using:
+
+```bash
+alembic upgrade head
+```
+
+Run migrations as a controlled deployment step, not automatically in every application instance.
+
+### Security and Error Handling
+
+- Cloud documents use a private Supabase Storage bucket.
+- Document access authorization remains enforced by the application.
+- Storage failures are translated into controlled application errors.
+- AI provider and document-cleanup log messages avoid logging raw provider exceptions in the reviewed handlers.
+- Simulated sensitive values are checked in the relevant regression tests.
+
+Do not treat these measures as a guarantee that all infrastructure logs or monitoring integrations are free from sensitive information.
+
+### Verified Local Results — November 3, 2026
+
+- Backend: 334 tests passed, 3 skipped.
+- Frontend: 51 tests passed across 10 test files.
+- Frontend TypeScript/Vite production build: passed.
+- Backend Docker image: built successfully.
+- Supabase SDK in Docker: 2.33.0.
+- WebSockets in Docker: 15.0.1.
+- Docker dependency consistency: passed.
+- FastAPI container health: passed.
+- PostgreSQL connectivity from the backend container: passed.
+- Development database Alembic revision: `50266c3b2d03` (head).
+- Live Supabase Storage and document API integration tests were exercised in earlier Phase 14.4 verification.
+
+### Known Limitations and Production Requirements
+
+- Local files are not automatically migrated to Supabase when the default storage provider changes.
+- Container-local storage is not durable without persistent volumes.
+- Failed cloud-object cleanup may require manual reconciliation.
+- Real provider exceptions can retain sensitive information in exception chains or external diagnostic systems.
+- Production deployment requires secure secrets, HTTPS, private storage permissions, managed database configuration, backups, and monitoring.
+- The complete application has not yet been deployed and verified in a production cloud environment.

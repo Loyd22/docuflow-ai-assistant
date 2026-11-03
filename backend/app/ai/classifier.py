@@ -31,7 +31,8 @@ class DocumentClassifier:
             )
 
         except Exception as error:
-            logger.exception("Document classification provider call failed.")
+            # Avoid logging raw provider exceptions containing sensitive data.
+            logger.error("Document classification provider call failed.")
 
             raise AIClassificationError("Document classification failed.") from error
 

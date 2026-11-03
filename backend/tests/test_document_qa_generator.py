@@ -66,14 +66,20 @@ def test_generate_rejects_empty_context() -> None:
     client.responses.create.assert_not_called()
 
 
-def test_generate_converts_provider_error() -> None:
+def test_generate_converts_provider_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Convert provider failures without exposing sensitive logs."""
+
+    sensitive_marker = "FAKE_SECRET_DO_NOT_LOG_123"
+
     client = Mock()
 
-    client.responses.create.side_effect = RuntimeError("Provider unavailable")
-
-    generator = DocumentQAGenerator(
-        client=client,
+    client.responses.create.side_effect = RuntimeError(
+        f"Provider failed: authorization=Bearer {sensitive_marker}"
     )
+
+    generator = DocumentQAGenerator(client=client)
 
     with pytest.raises(
         AIQuestionAnsweringError,
@@ -83,3 +89,12 @@ def test_generate_converts_provider_error() -> None:
             question="What is the policy?",
             context="Some document context.",
         )
+
+    # Record the operation without exposing the exception details.
+    assert "Document question answering provider call failed." in caplog.text
+
+    assert sensitive_marker not in caplog.text
+    assert "authorization=Bearer" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+    client.responses.create.assert_called_once()

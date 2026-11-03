@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.6-luna"
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dimensions: int = 1536
+    # Select where uploaded documents are stored.
+    storage_provider: Literal["local", "supabase"] = "local"
+
+    # Required only when Supabase storage is selected.
+    supabase_url: str | None = None
+    supabase_secret_key: str | None = None
+    supabase_storage_bucket: str = "docuflow-documents"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -49,6 +56,24 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_storage_settings(self) -> "Settings":
+        """Require cloud credentials when using Supabase Storage."""
+
+        if self.storage_provider == "supabase":
+            if not self.supabase_url or not self.supabase_url.startswith("https://"):
+                raise ValueError("SUPABASE_URL must be a valid HTTPS URL.")
+
+            if not self.supabase_secret_key:
+                raise ValueError(
+                    "SUPABASE_SECRET_KEY is required for Supabase Storage."
+                )
+
+            if not self.supabase_storage_bucket.strip():
+                raise ValueError("SUPABASE_STORAGE_BUCKET cannot be empty.")
+
+        return self
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":

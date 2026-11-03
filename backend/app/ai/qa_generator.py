@@ -55,7 +55,8 @@ QUESTION:
             )
 
         except Exception as error:
-            logger.exception("Document question answering provider call failed.")
+            # Avoid logging raw provider exceptions containing sensitive data.
+            logger.error("Document question answering provider call failed.")
 
             raise AIQuestionAnsweringError(
                 "Document question answering failed."

@@ -1,12 +1,12 @@
 """
 Document processing service.
 
-Coordinates text extraction from uploaded documents,
-tracks processing status, persists the result, and records
-successful text-extraction audit events.
+Coordinates text extraction, processing status,
+database persistence, and audit logging.
 """
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from sqlalchemy.orm import Session
 
@@ -20,13 +20,23 @@ from app.processing.exceptions import DocumentProcessingError
 from app.processing.extractor_factory import ExtractorFactory
 from app.repositories.document_repository import save_document
 from app.services.audit_log_service import AuditLogService
+from app.storage.base import DocumentStorage
+
+
+def extract_document_text(file_path: Path) -> str:
+    """Extract text using the existing document extractors."""
+
+    extractor = ExtractorFactory.get_extractor(file_path)
+    return extractor.extract(file_path)
 
 
 def process_document(
     database_session: Session,
     document: Document,
+    *,
+    storage: DocumentStorage | None = None,
 ) -> Document:
-    """Extract document text and update processing status."""
+    """Extract text from a local or stored document."""
 
     document.status = DocumentStatus.PROCESSING
 
@@ -36,11 +46,29 @@ def process_document(
     )
 
     try:
-        file_path = Path(document.file_path)
+        if storage is None:
+            # Keep the existing local-file behavior.
+            file_path = Path(document.file_path)
+            extracted_text = extract_document_text(file_path)
 
-        extractor = ExtractorFactory.get_extractor(file_path)
+        else:
+            # Keep the extension for the existing extractor factory.
+            extension = Path(document.stored_file_name).suffix.lower()
 
-        extracted_text = extractor.extract(file_path)
+            if extension not in {".pdf", ".docx", ".txt"}:
+                raise DocumentProcessingError("Unsupported document extension.")
+
+            # TemporaryDirectory removes files after processing.
+            with TemporaryDirectory() as temporary_directory:
+                file_path = Path(temporary_directory) / f"document{extension}"
+
+                # Retrieve the document from the storage provider.
+                storage.download_to_path(
+                    document.stored_file_name,
+                    file_path,
+                )
+
+                extracted_text = extract_document_text(file_path)
 
         if not extracted_text.strip():
             raise DocumentProcessingError(

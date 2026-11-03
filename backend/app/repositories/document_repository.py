@@ -22,10 +22,12 @@ def create_document(
     file_path: str,
     mime_type: str,
     file_size: int,
+    storage_provider: str = "local",
     document_type: DocumentType = DocumentType.UNKNOWN,
     status: DocumentStatus = DocumentStatus.UPLOADED,
+    commit: bool = True,
 ) -> Document:
-    """Create and persist a new document record."""
+    """Create a document, optionally without committing."""
 
     document = Document(
         uploaded_by=uploaded_by,
@@ -36,11 +38,18 @@ def create_document(
         file_size=file_size,
         document_type=document_type,
         status=status,
+        storage_provider=storage_provider,
     )
 
     database_session.add(document)
-    database_session.commit()
-    database_session.refresh(document)
+
+    if commit:
+        # Keep the existing behavior for other callers.
+        database_session.commit()
+        database_session.refresh(document)
+    else:
+        # Get the document ID without committing.
+        database_session.flush()
 
     return document
 
