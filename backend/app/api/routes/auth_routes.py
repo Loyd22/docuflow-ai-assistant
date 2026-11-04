@@ -7,6 +7,7 @@ from app.api.dependencies import (
     get_current_user,
     require_roles,
 )
+from app.core.config import settings
 from app.db.enums import UserRole
 from app.db.models.user import User
 from app.db.session import get_db_session
@@ -43,6 +44,13 @@ def register_user(
     ],
 ) -> User:
     """Register a new user account."""
+
+    # Block new registrations when public registration is disabled.
+    if not settings.public_registration_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration is disabled.",
+        )
 
     user_repository = UserRepository(db_session)
     auth_service = AuthService(user_repository)

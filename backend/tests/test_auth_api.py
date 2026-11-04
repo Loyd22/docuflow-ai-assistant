@@ -1,6 +1,8 @@
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api.routes import auth_routes
 from app.db.enums import UserRole
 from app.db.models.user import User
 
@@ -29,6 +31,30 @@ def test_register_user(
     # Sensitive password information must never leave the API.
     assert "password" not in response_data
     assert "password_hash" not in response_data
+
+
+def test_public_registration_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Disable registration temporarily for this test.
+    monkeypatch.setattr(
+        auth_routes.settings,
+        "public_registration_enabled",
+        False,
+    )
+
+    response = client.post(
+        "/auth/register",
+        json={
+            "name": "Unknown User",
+            "email": "unknown@example.com",
+            "password": "password123",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == ("Public registration is disabled.")
 
 
 def test_register_rejects_duplicate_email(
@@ -142,8 +168,6 @@ def test_get_current_user_with_valid_token(
         },
     )
 
-    assert register_response.status_code == 201
-
     login_response = client.post(
         "/auth/login",
         json={
@@ -152,6 +176,7 @@ def test_get_current_user_with_valid_token(
         },
     )
 
+    assert register_response.status_code == 201
     assert login_response.status_code == 200
 
     access_token = login_response.json()["access_token"]

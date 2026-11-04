@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     app_name: str = "DocuFlow AI"
     app_env: Literal["development", "testing", "production"] = "development"
     app_debug: bool = True
+    public_registration_enabled: bool = True
 
     # Frontend origins allowed to call our backend.
     cors_allowed_origins: list[str] = [
