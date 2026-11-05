@@ -1,1877 +1,436 @@
 # DocuFlow AI
-DocuFlow AI is an AI-powered document-processing and workflow automation system designed to automate business document intake, classification, extraction, business-rule evaluation, routing, approval, and retrieval.
-The project is being built incrementally using a modular monolith architecture with clear separation between API routes, schemas, services, repositories, database models, security, file storage, document processing, AI logic, deterministic business rules, and tests.
----
-## Current Project Status
-Completed implementation and phase verification:
-* Phase 1 — Project Setup
-* Phase 2 — Backend Foundation
-* Phase 3 — Database Design
-* Phase 4 — Authentication & Authorization
-* Phase 5 — Document Upload
-* Phase 6 — Document Processing
-* Phase 7 — AI Classification & Extraction
-* Phase 8 — Business Rules
-* Phase 9 — Workflow & Approval
-* Phase 10 — RAG / Document Q&A
-* Phase 11 — Dashboard & Audit Logs
-* Phase 12 — Frontend
-* Phase 12.5 — MVP Workflow Completion, Manager Experience & UI Redesign
-* Phase 13 — Testing & Reliability (merged into `main`)
 
-In progress:
-* Phase 14 — Deployment / DevOps
-  * GitHub Actions CI: implemented and passing on merged pull request #5
-  * Phase 14.3 production configuration and local backend Docker: implemented and verified locally; feature branch not yet merged
-  * Cloud hosting, persistent document storage, production release controls, and monitoring: pending
+**AI-powered document processing, business-rule automation, human approval workflows, and retrieval-augmented question answering.**
 
-**Latest local backend verification (October 28, 2026):** `262 passed, 1 skipped`, `ruff check app tests` passed, and `ruff format --check app tests` reported 128 files formatted. This run preceded the latest test-database guard edit; rerun checks before merging. **Last reported frontend verification (Phase 13):** 51 tests passed across 10 files, lint/build passed, and npm audit reported 0 vulnerabilities at that time. Phase 13 measured backend coverage of 90% and workflow-history service coverage of 96%; those figures are historical baselines, not newly measured coverage.
+DocuFlow AI is a full-stack application that helps teams intake business documents, extract readable text, classify document types, extract structured invoice data, apply deterministic business rules, route items for human review, and ask questions about stored documents with supporting source chunks.
 
-**CI:** `.github/workflows/ci.yml` runs backend Ruff/pytest against a PostgreSQL + pgvector service and frontend lint/Vitest/build for PRs targeting `main` and pushes to `main`. Both jobs passed on pull request #5. CI passing is not equivalent to a completed cloud deployment.
----
+It is implemented as a **modular monolith**: a React frontend communicates with a FastAPI backend organized into distinct API, service, domain, repository, security, AI, processing, storage, and persistence layers.
+
+## Live Application
+
+| Component | URL / provider |
+| --- | --- |
+| Frontend | [DocuFlow AI on Vercel](https://docuflow-ai-assistant.vercel.app) |
+| Backend | [FastAPI on Render](https://docuflow-ai-backend-ankq.onrender.com) |
+| API documentation | [Swagger UI](https://docuflow-ai-backend-ankq.onrender.com/docs) |
+| Database | Supabase PostgreSQL with pgvector |
+| Private document storage | Supabase Storage |
+| LLM and embeddings | OpenAI API |
+
+**Access:** Production self-registration is disabled (`PUBLIC_REGISTRATION_ENABLED=false`). Accounts are provisioned deliberately; demo credentials are not published. The backend still has an internet-accessible API, so disabling registration is **not** equivalent to restricting all public access.
+
+**Free-tier note:** Render Free instances may spin down during inactivity, causing slow first requests. OpenAI usage is metered separately; free hosting does not make model calls free. The deployment is a portfolio demonstration, not a fully hardened enterprise service.
+
+## Project Status — November 5, 2026
+
+- **Phases 1–13:** Core application, frontend, workflow completion, and reliability work implemented; Phase 13 merged into `main`.
+- **Phase 14.1–14.3:** GitHub Actions CI, validated production configuration, and Docker backend completed.
+- **Phase 14.4:** Configurable local/Supabase Storage adapter implemented and merged; private cloud object storage integrated.
+- **Phase 14.5:** Supabase PostgreSQL schema migrated; FastAPI deployed to Render; React/Vite deployed to Vercel; production CORS and SPA rewrite configured; controlled user provisioning demonstrated.
+- **Phase 14.6 — CI/CD:** Protected `main` branch with required backend/frontend GitHub Actions checks; verified Vercel production deployment from PR #12 and Render automatic deployment from PR #13. Render reports commit `2f63117` live, and application/database health checks passed.
+- **Phase 15 — Next planned phase:** Admin User Management & RBAC Refinement. Not implemented yet; proposed scope and security boundaries are outlined below.
+- **Verified cloud path:** Production sign-in; authenticated PDF upload; text extraction; AI invoice classification/analysis; document indexing; question answering with a retrieved source chunk.
+- **Not yet fully verified in the deployed environment:** Complete manager/admin approval and information-request journeys, broader concurrency/failure recovery, backup restoration, load tests, and security/operational controls described below.
+
+### Latest recorded checks
+
+| Check | Result | Scope |
+| --- | --- | --- |
+| Backend pytest | **335 passed, 3 skipped**, 27.68 seconds | Latest user-reported local full suite, November 2026 |
+| GitHub Actions | Backend and frontend CI **passed** | Including protected PR #12 and PR #13 (November 5, 2026) |
+| Frontend Vitest | **51 passed across 10 files** | Last reported frontend run; not necessarily rerun after every deployment configuration edit |
+| Backend Ruff | Passed during deployment-preparation checks | Latest local verification |
+| Production health | `/health` → healthy | Render |
+| Database health | `/health/database` → connected | Render to Supabase PostgreSQL |
+| Production public registration | `POST /auth/register` → **403** | `PUBLIC_REGISTRATION_ENABLED=false` |
+| Production RAG demonstration | Indexed invoice, generated an answer, returned **Chunk 0** source | One manually tested synthetic invoice, not a broad evaluation |
+
+Earlier measurements of **90% backend coverage** and **96% workflow-history service coverage** are historical Phase 13 baselines, not freshly remeasured current coverage.
+
+## Features
+
+- **Authentication and roles:** JWT login; Argon2 password hashes; `employee`, `manager`, and `admin` authorization; protected frontend routes; configurable public registration.
+- **Secure document intake:** Authenticated PDF, DOCX, and TXT upload; 10 MB maximum; generated internal storage keys; metadata in PostgreSQL; private storage adapter for local files or Supabase Storage.
+- **Text extraction:** Extracts machine-readable text from TXT, DOCX, and text-based PDF files; maintains processing states and controlled errors. Scanned/image-only PDFs are not currently OCR-enabled.
+- **AI classification:** OpenAI Responses API classification with validated Pydantic output. Supported types include invoice, contract, SOP, HR form, purchase request, policy, business report, support ticket, digital form, memo, and `unknown`.
+- **Invoice extraction:** Validated invoice number, supplier, dates, currency, subtotal, tax, and total amount. Missing values can remain null.
+- **Deterministic business rules:** Invoice totals above **20,000** are routed for manager approval; invoices with missing totals require manual review. Unsupported detailed rule types also fall back to review rather than automatic approval.
+- **Human-in-the-loop workflows:** Manager/admin approval or rejection, manual review of invoices, information requests and employee responses, decision history, and workflow authorization.
+- **Document RAG:** Paragraph-aware chunking, OpenAI embeddings, PostgreSQL `vector(1536)`, cosine-similarity retrieval scoped to the document, grounded answer generation, and returned source chunks.
+- **Dashboard and audit:** Role-restricted summaries, persistent audit events, and history for document and workflow actions.
+- **Original-file access:** Authorized viewing/downloading through backend permission checks, without exposing private storage keys as public object URLs.
+
 ## Technology Stack
-### Frontend
-* React
-* Vite
-* TypeScript
-* React Router
-* Axios
-* JWT-aware API client
-* Role-aware protected routes
-* Responsive CSS component styling
-### Backend
-* Python
-* FastAPI
-* Pydantic
-* SQLAlchemy
-* Alembic
-### Database
-* PostgreSQL 16
-* Psycopg
-* PostgreSQL JSONB
-* pgvector for vector embeddings and cosine-similarity retrieval
-### Authentication & Security
-* JWT authentication
-* PyJWT
-* Argon2 password hashing through `pwdlib`
-* Role-based authorization
-### File Handling
-* FastAPI `UploadFile`
-* Multipart form-data uploads
-* Local filesystem storage
-* UUID-based internal filenames
-### Document Processing
-* `python-docx` for DOCX text extraction
-* `pypdf` for PDF text extraction
-* Python `pathlib` and built-in text reading for TXT files
-* Extractor factory for file-type selection
-* Processing-status tracking
-* Controlled processing exceptions
-### AI Classification & Extraction
-* OpenAI Python SDK
-* OpenAI Responses API
-* Configurable AI model through environment settings
-* Structured outputs validated with Pydantic
-* Document classification across supported DocuFlow document types
-* Invoice-specific structured field extraction
-* AI-specific application exceptions and controlled API responses
-* Persistent AI-processing status tracking
-* PostgreSQL JSONB storage for structured extracted data
-* Separate AI evaluation suite for model-quality measurement
-### Business Rules
-* Deterministic Python business-rule evaluation
-* Document-type-specific rule modules
-* Central business-rules engine
-* Pydantic-validated `BusinessRuleResult`
-* Decimal conversion for financial rule comparisons
-* PostgreSQL JSONB persistence for rule decisions
-* Manual-review fallback for document types whose rules are not implemented yet
-### Workflow & Approval
-* Persistent document workflow records
-* Deterministic mapping from business actions to workflow states
-* Manager/admin approval authorization
-* Human approval decision history
-* Approval, rejection, and information-request transitions
-* Workflow ownership visibility controls for employees
-* PostgreSQL persistence for workflow and approval records
-* FastAPI workflow retrieval and decision endpoints
-### RAG / Document Q&A
-* OpenAI embeddings
-* Configurable embedding model through environment settings
-* 1536-dimensional vector embeddings
-* pgvector-backed document chunk storage
-* Cosine-distance semantic retrieval
-* Paragraph-aware text chunking with character-based fallback
-* Configurable chunk size and overlap
-* Document indexing service
-* Grounded document Q&A generation
-* Retrieved source chunks returned with generated answers
-* Controlled fallback for unsupported questions
-* Dedicated RAG evaluation suite
-### Dashboard & Audit Logs
-* Persistent audit-log records for important user and system actions
-* Controlled audit actions and entity types through enums
-* Audit events for upload, text extraction, AI classification, structured extraction, business rules, workflow creation, and human decisions
-* Manager/admin audit-history API access
-* Dashboard aggregation queries for document and workflow totals
-* Document counts grouped by processing status and document type
-* Workflow counts grouped by workflow status
-* Manager/admin dashboard authorization
-* Dedicated Phase 11 API integration tests
-### Infrastructure & Development
-* Docker
-* Docker Compose
-* GitHub Actions CI (backend and frontend verification)
-* Dockerized FastAPI backend for local deployment testing
-* pytest and pytest-cov (including branch coverage)
-* FastAPI TestClient
-* Ruff
-* Vitest and React Testing Library for frontend tests
-* Oxlint, TypeScript compiler, and Vite production builds
----
-## Project Architecture
-DocuFlow currently follows a modular monolith structure.
 
-Phase 12 adds a separate React frontend that consumes the FastAPI application over HTTP. Phase 12.5 adds full human-in-the-loop review paths, document access controls, workflow history, and a refreshed role-aware UI. Phase 13 strengthens automated regression, security, transaction, concurrency, and history tests without changing the modular-monolith design. Phase 14 introduces CI, validated runtime configuration, and a locally verified Dockerized backend; cloud deployment is still pending.
+| Layer | Tools |
+| --- | --- |
+| Frontend | React, TypeScript, Vite, React Router, Axios, CSS |
+| Backend | Python 3.12, FastAPI, Pydantic, SQLAlchemy 2, Alembic |
+| Authentication | JWT / PyJWT, `pwdlib` / Argon2, role-based access control |
+| Data | PostgreSQL 16, Psycopg 3, JSONB, pgvector |
+| AI | OpenAI Python SDK, Responses API, embeddings, Pydantic-validated structured outputs |
+| File processing | `pypdf`, `python-docx`, text extraction, storage adapters |
+| Cloud | Vercel (frontend), Render (Docker backend), Supabase (PostgreSQL and private Storage) |
+| Quality | pytest, Ruff, Vitest, React Testing Library, Oxlint, TypeScript checks, GitHub Actions |
+| Local infrastructure | Docker and Docker Compose |
+
+## Architecture
 
 ```text
-frontend/
-├── src/
-│   ├── api/
-│   │   ├── auditLogApi.ts
-│   │   ├── client.ts
-│   │   ├── dashboardApi.ts
-│   │   ├── recentWorkflowsApi.ts
-│   │   ├── documentApi.ts
-│   │   └── workflowApi.ts
-│   ├── auth/
-│   ├── components/
-│   │   ├── audit-logs/
-│   │   ├── dashboard/
-│   │   ├── documents/
-│   │   ├── layout/
-│   │   └── workflows/
-│   ├── layouts/
-│   ├── pages/
-│   ├── styles/
-│   ├── utils/
-│   ├── types/
-│   ├── App.tsx
-│   └── main.tsx
+Browser (React + Vite on Vercel)
+           |
+           | HTTPS / JSON / JWT
+           v
+FastAPI modular monolith (Docker on Render)
+  |-- API routes / auth dependencies / validation
+  |-- Services / workflow orchestration
+  |-- Processing / PDF, DOCX, TXT extraction
+  |-- AI / classification, invoice extraction, Q&A
+  |-- Business rules / deterministic decisions
+  |-- RAG / chunking, embeddings, retrieval
+  |-- Repositories / SQLAlchemy
+  |-- Storage interface / provider selection
+           |                       |
+           v                       v
+Supabase PostgreSQL + pgvector   Private Supabase Storage
+           ^
+           |
+      Audit and workflows
+
+External model calls: OpenAI API (Responses + embeddings)
 ```
 
-```text
-backend/
-├── app/
-│   ├── ai/
-│   │   ├── __init__.py
-│   │   ├── client.py
-│   │   ├── classifier.py
-│   │   ├── extractor.py
-│   │   ├── embedder.py
-│   │   ├── qa_generator.py
-│   │   ├── prompts.py
-│   │   └── exceptions.py
-│   │
-│   ├── api/
-│   │   ├── routes/
-│   │   │   ├── audit_log_routes.py
-│   │   │   ├── auth_routes.py
-│   │   │   ├── dashboard_routes.py
-│   │   │   ├── document_routes.py
-│   │   │   ├── health_routes.py
-│   │   │   └── workflow_routes.py
-│   │   ├── dependencies.py
-│   │   └── router.py
-│   │
-│   ├── business_rules/
-│   │   ├── __init__.py
-│   │   ├── engine.py
-│   │   └── invoice_rules.py
-│   │
-│   ├── core/
-│   │   ├── config.py
-│   │   └── security.py
-│   │
-│   ├── db/
-│   │   ├── models/
-│   │   │   ├── user.py
-│   │   │   ├── document.py
-│   │   │   ├── workflow.py
-│   │   │   ├── approval.py
-│   │   │   ├── audit_log.py
-│   │   │   └── document_chunk.py
-│   │   ├── base.py
-│   │   ├── database.py
-│   │   ├── enums.py
-│   │   └── session.py
-│   │
-│   ├── rag/
-│   │   ├── __init__.py
-│   │   └── chunker.py
-│   │
-│   ├── processing/
-│   │   ├── __init__.py
-│   │   ├── base_extractor.py
-│   │   ├── text_extractor.py
-│   │   ├── docx_extractor.py
-│   │   ├── pdf_extractor.py
-│   │   ├── extractor_factory.py
-│   │   └── exceptions.py
-│   │
-│   ├── repositories/
-│   │   ├── user_repository.py
-│   │   ├── document_repository.py
-│   │   ├── workflow_repository.py
-│   │   ├── approval_repository.py
-│   │   ├── audit_log_repository.py
-│   │   ├── dashboard_repository.py
-│   │   └── document_chunk_repository.py
-│   │
-│   ├── schemas/
-│   │   ├── ai_schema.py
-│   │   ├── audit_log_schema.py
-│   │   ├── auth_schema.py
-│   │   ├── business_rule_schema.py
-│   │   ├── dashboard_schema.py
-│   │   ├── document_schema.py
-│   │   └── workflow_schema.py
-│   │
-│   ├── services/
-│   │   ├── auth_service.py
-│   │   ├── audit_log_service.py
-│   │   ├── dashboard_service.py
-│   │   ├── document_service.py
-│   │   ├── document_processing_service.py
-│   │   ├── document_ai_service.py
-│   │   ├── document_analysis_service.py
-│   │   ├── workflow_service.py
-│   │   ├── document_chunking_service.py
-│   │   ├── document_embedding_service.py
-│   │   ├── document_indexing_service.py
-│   │   ├── document_retrieval_service.py
-│   │   └── document_qa_service.py
-│   │
-│   ├── storage/
-│   │   ├── __init__.py
-│   │   └── file_storage.py
-│   │
-│   └── main.py
-│
-├── evals/
-│   ├── __init__.py
-│   ├── classification_cases.py
-│   ├── invoice_extraction_cases.py
-│   ├── run_classification_eval.py
-│   ├── run_invoice_extraction_eval.py
-│   ├── rag_cases.py
-│   └── run_rag_eval.py
-│
-├── migrations/
-│   └── versions/
-│
-├── tests/
-│   ├── conftest.py
-│   ├── test_audit_log_api.py
-│   ├── test_auth_api.py
-│   ├── test_auth_service.py
-│   ├── test_dashboard_api.py
-│   ├── test_business_rule_engine.py
-│   ├── test_document_api.py
-│   ├── test_document_processing_service.py
-│   ├── test_document_service.py
-│   ├── test_document_classifier.py
-│   ├── test_invoice_extractor.py
-│   ├── test_invoice_rules.py
-│   ├── test_document_ai_service.py
-│   ├── test_document_analysis_service.py
-│   ├── test_document_analysis_integration.py
-│   ├── test_workflow_service.py
-│   ├── test_workflow_api.py
-│   ├── test_text_chunker.py
-│   ├── test_document_chunking_service.py
-│   ├── test_document_embedder.py
-│   ├── test_document_embedding_service.py
-│   ├── test_document_indexing_service.py
-│   ├── test_document_retrieval_service.py
-│   ├── test_document_chunk_repository.py
-│   ├── test_document_qa_generator.py
-│   ├── test_document_qa_service.py
-│   ├── test_docx_extractor.py
-│   ├── test_extractor_factory.py
-│   ├── test_health.py
-│   ├── test_pdf_extractor.py
-│   └── test_text_extractor.py
-│
-├── uploads/
-├── alembic.ini
-├── pyproject.toml
-├── requirements.txt
-├── .env
-└── .env.example
-```
-The application follows this general request flow:
-```text
-HTTP Request
-↓
-Pydantic Schema / FastAPI Input
-↓
-API Route
-↓
-Service
-↓
-Domain / Business Logic
-↓
-Repository
-↓
-SQLAlchemy
-↓
-PostgreSQL
-```
-Document uploads use a dedicated storage layer:
-```text
-Document Service
-↓
-File Storage Layer
-↓
-Local Upload Directory
-```
-Document processing uses a dedicated processing layer:
-```text
-Document Processing Service
-↓
-Extractor Factory
-↓
-TXT / DOCX / PDF Extractor
-↓
-Extracted Text
-↓
-Document Repository
-↓
-PostgreSQL
-```
-AI analysis uses dedicated AI and orchestration layers:
-```text
-Extracted Text
-↓
-Document Analysis Service
-↓
-Document AI Service
-↓
-Document Classifier
-↓
-Invoice Extractor when document_type = invoice
-↓
-Validated Pydantic Structured Output
-↓
-Business Rules Engine
-↓
-Document-Specific Rules
-↓
-BusinessRuleResult
-↓
-Persist business-rule decision
-↓
-Workflow Service
-↓
-Workflow Repository / Approval Repository
-↓
-PostgreSQL
-```
-RAG indexing and document Q&A use dedicated retrieval layers:
-```text
-Processed Document
-↓
-Extracted Text
-↓
-Document Chunking Service
-↓
-Paragraph-Aware Text Chunker
-↓
-Document Chunks
-↓
-OpenAI Embeddings
-↓
-pgvector / PostgreSQL
-↓
-User Question
-↓
-Question Embedding
-↓
-Cosine-Similarity Search
-↓
-Top Relevant Document Chunks
-↓
-Document QA Generator
-↓
-Grounded Answer + Retrieved Sources
-```
-Security-specific functionality is kept inside the core security layer.
----
-## Separation of Concerns
-DocuFlow keeps responsibilities separated by layer.
-```text
-api/routes/
-→ HTTP request and response handling
-services/
-→ application workflow orchestration
-repositories/
-→ database access and persistence
-schemas/
-→ validated data contracts
-db/models/
-→ database table structure and relationships
-ai/
-→ AI-provider logic, prompts, classification, extraction
-processing/
-→ deterministic file and text extraction
-business_rules/
-→ deterministic company/domain policy
-rag/
-→ text chunking and retrieval-oriented document preparation
-workflow service
-→ translates business-rule decisions into workflow state and coordinates approvals
-storage/
-→ physical file persistence
-```
-A new development phase does not automatically require a new folder.
-A new package is introduced when the code represents a distinct responsibility that should remain isolated from the existing layers.
----
-## Database Models
-The database includes these primary tables:
-* `users`
-* `documents`
-* `workflows`
-* `approvals`
-* `workflow_reviews`
-* `workflow_information_requests`
-* `audit_logs`
-* `document_chunks`
-Database schema changes are managed through Alembic migrations.
-Do not use `Base.metadata.create_all()` as the normal development or production migration strategy.
-The automated integration-test environment may use `create_all()` and `drop_all()` to create and remove an isolated disposable test schema.
-The `documents` table currently stores:
-```text
-id
-uploaded_by
-original_file_name
-stored_file_name
-file_path
-mime_type
-file_size
-document_type
-status
-extracted_text
-classification_confidence
-extracted_data
-business_rule_result
-summary
-created_at
-updated_at
-```
-### Document Chunks
-Phase 10 introduced the document_chunks table for RAG indexing.
-Each row stores:
-```text
-id
-document_id
-chunk_index
-content
-embedding
-created_at
-```
-embedding uses PostgreSQL vector(1536) through pgvector.
-The combination of document_id and chunk_index is unique.
-Chunks belong to a document and are deleted automatically when their parent document is deleted.
-The embedding column is nullable so chunk persistence can occur before external embedding generation succeeds.
-### Structured JSONB Data
-`extracted_data` stores structured AI extraction results.
-Example:
-```json
-{
-  "invoice_number": "INV-2026-001",
-  "supplier": "ABC Office Supplies",
-  "invoice_date": "2026-09-18",
-  "due_date": "2026-09-30",
-  "currency": "PHP",
-  "subtotal": 22000.0,
-  "tax": 2640.0,
-  "total_amount": 24640.0
-}
-```
-`business_rule_result` stores the deterministic Phase 8 decision.
-Example:
-```json
-{
-  "requires_approval": true,
-  "approval_role": "manager",
-  "requires_manual_review": false,
-  "next_action": "manager_review",
-  "reason": "Invoice total exceeds the manager approval threshold."
-}
-```
-The `business_rule_result` column is nullable so documents created before Phase 8 remain valid.
----
-## Authentication & Authorization
-Phase 4 introduced JWT-based authentication and role-based authorization.
-### Authentication Endpoints
-```text
-POST /auth/register
-POST /auth/login
-GET  /auth/me
-```
-### Registration
-New users provide:
-```json
-{
-  "name": "Test Employee",
-  "email": "test@example.com",
-  "password": "password123"
-}
-```
-Passwords are never stored directly.
-The registration flow is:
-```text
-Request
-↓
-Validate input
-↓
-Normalize email
-↓
-Check duplicate account
-↓
-Hash password using Argon2
-↓
-Store password_hash
-↓
-Create User
-```
-New accounts default to:
-```text
-employee
-```
-Users cannot assign themselves elevated roles during registration.
-### Login
-Login accepts:
-```json
-{
-  "email": "test@example.com",
-  "password": "password123"
-}
-```
-Successful authentication returns:
-```json
-{
-  "access_token": "<JWT>",
-  "token_type": "bearer"
-}
-```
-Protected requests use:
-```text
-Authorization: Bearer <access_token>
-```
-### Current User
-```text
-GET /auth/me
-```
-The endpoint validates the JWT, resolves the current user from PostgreSQL, verifies that the account is active, and returns safe user information.
-### Roles
-DocuFlow currently supports:
-```text
-employee
-manager
-admin
-```
-These roles are represented using the `UserRole` enum.
-Authorization is enforced by the backend through reusable FastAPI dependencies.
-```text
-Authentication
-→ Who is this user?
-Authorization
-→ Is this user allowed to perform this action?
-```
-Inactive accounts are rejected without deleting historical business records.
----
-## Document Upload
-Phase 5 introduced authenticated document uploads with validation, local file storage, metadata persistence, cleanup handling, and automated tests.
-### Document Upload Endpoint
-```text
-POST /documents
-```
-The endpoint requires authentication.
-```text
-Authorization: Bearer <access_token>
-```
-Anonymous users cannot upload documents.
-### Supported File Types
-```text
-.pdf
-.docx
-.txt
-```
-### Maximum File Size
-```text
-10 MB
-```
-Empty files are rejected.
-### Upload Flow
-```text
-Authenticated User
-↓
-POST /documents
-↓
-Resolve current user
-↓
-Validate filename
-↓
-Validate file extension
-↓
-Generate unique stored filename
-↓
-Save physical file
-↓
-Validate actual file size
-↓
-Create document database record
-↓
-Return safe document metadata
-```
-### File Storage
-Uploaded files are currently stored locally in:
-```text
-backend/uploads/
-```
-The storage layer generates a unique internal filename using a UUID rather than storing the file directly using its user-provided name.
-Example:
-```text
-Original filename:
-invoice.pdf
-Stored filename:
-7bb65f93b6b44266b3dba9fc31fd6c87.pdf
-```
-The original filename is still preserved in PostgreSQL.
-### New Document State
-New uploads default to:
-```text
-document_type = unknown
-status = uploaded
-```
-### Uploader Identity
-Clients do not provide `uploaded_by` themselves.
-```text
-JWT
-↓
-get_current_user
-↓
-current_user.id
-↓
-Document.uploaded_by
-```
-This prevents users from claiming another account as the uploader.
-### Public Document Response
-The document API returns safe business-facing metadata such as:
-```text
-id
-uploaded_by
-original_file_name
-mime_type
-file_size
-document_type
-status
-created_at
-updated_at
-```
-Internal fields such as:
-```text
-stored_file_name
-file_path
-```
-are not exposed through the public response.
+**Separation of concerns**
 
-### Document Detail Endpoint
-Phase 12 introduced a read-only detail endpoint for workflow review:
+| Directory | Responsibility |
+| --- | --- |
+| `backend/app/api/routes/` | HTTP endpoints and response handling |
+| `backend/app/api/dependencies.py` and `backend/app/security/` | Authentication and access policies |
+| `backend/app/schemas/` | Validated input/output contracts |
+| `backend/app/services/` | Application orchestration and workflow coordination |
+| `backend/app/business_rules/` | Deterministic company policy; no LLM decisions |
+| `backend/app/ai/` | OpenAI calls, prompts, model output parsing |
+| `backend/app/processing/` | File-to-text extraction |
+| `backend/app/rag/` | Text chunking for retrieval |
+| `backend/app/repositories/` | Database access |
+| `backend/app/db/models/` | Persistent data models |
+| `backend/app/storage/` | Pluggable file persistence: local and Supabase |
+| `backend/migrations/` | Alembic database schema history |
+| `backend/evals/` | AI behavior evaluation separate from deterministic tests |
+| `backend/tests/` | Unit and integration tests |
+| `frontend/src/api/` | Shared JWT-aware HTTP client and feature APIs |
+| `frontend/src/pages/`, `components/`, `auth/` | UI pages, reusable components, protected navigation |
+| `frontend/vercel.json` | SPA fallback rewrite to `/index.html` for direct client-route visits |
+
+### Typical document lifecycle
 
 ```text
-GET /documents/{document_id}
+Sign in
+  -> Upload PDF/DOCX/TXT
+  -> Save private object and document metadata
+  -> Extract text
+  -> Classify (OpenAI) + extract supported fields
+  -> Validate Pydantic output
+  -> Apply deterministic business rules
+  -> Create/update workflow
+  -> Human review / approval where required
+  -> Audit relevant actions
+
+Optional document Q&A:
+  extracted text -> chunks -> embeddings -> pgvector
+  question -> embedding -> document-scoped retrieval
+           -> context + LLM -> answer + cited source chunks
 ```
 
-It returns the normal public document metadata plus review-facing fields:
+**Distinct state machines:** A document can have status `analyzed` while its separate workflow remains `pending_approval`. AI classification is not itself an approval decision.
 
-```text
-extracted_text
-summary
-classification_confidence
-extracted_data
-business_rule_result
-```
+## Business Rules and Human Review
 
-Authorization:
+For the current invoice MVP, the rule engine uses the validated extracted total:
 
-```text
-employee
-→ may view only documents they uploaded
+| Condition | Result |
+| --- | --- |
+| Total missing | `manual_review` → `needs_review` |
+| Total greater than 20,000 | `manager_review` → `pending_approval` |
+| Total at or below 20,000 | `continue_processing` → `completed` |
+| Document type without implemented specific rules | `manual_review` → `needs_review` |
 
-manager / admin
-→ may view employee documents for workflow review
-```
+Financial comparisons use `Decimal` in the rules layer. Managers/admins can approve, reject, or request more information as permitted by workflow state and role; manual invoice review can provide a verified total for re-evaluation. Workflows retain decision history and audit records. Employee access is scoped to owned documents; broader reviewer read access does not automatically grant editing rights to every document action.
 
-The endpoint does not expose internal storage fields such as `stored_file_name` or `file_path`.
+## Database and Migrations
 
-Processing, analysis, indexing, and RAG Q&A endpoints keep their existing ownership restrictions; the broader manager/admin permission applies only to read-only document review.
-### Upload Failure Cleanup
-```text
-Save file
-↓
-Create database record
-↓
-Database failure
-↓
-Delete saved file
-↓
-Rollback transaction
-↓
-Propagate error
-```
-This helps prevent orphaned files.
-### Upload Validation
-Phase 5 validates:
-* filename presence
-* supported file extension
-* empty files
-* maximum file size
-Deep file-signature validation is not yet implemented.
----
-## Document Processing
-Phase 6 introduced document text extraction for uploaded TXT, DOCX, and PDF files.
-The goal is to transform stored files into machine-readable text for later AI analysis.
-### Processing Endpoint
-```text
-POST /documents/{document_id}/process
-```
-The endpoint requires authentication.
-Only the user who uploaded the document can currently trigger processing.
-### Processing Flow
-```text
-Authenticated User
-↓
-POST /documents/{document_id}/process
-↓
-Find document in PostgreSQL
-↓
-Verify document ownership
-↓
-Set status = processing
-↓
-Document Processing Service
-↓
-Extractor Factory
-↓
-Choose TXT / DOCX / PDF extractor
-↓
-Extract text
-↓
-Store extracted_text
-↓
-Set status = text_extracted
-↓
-Persist document
-↓
-Return safe document metadata
-```
-### Extractor Architecture
-All extractors follow:
-```text
-extract(file_path) -> str
-```
-Current hierarchy:
-```text
-BaseTextExtractor
-├── TextExtractor
-├── DOCXExtractor
-└── PDFExtractor
-```
-The `ExtractorFactory` selects the extractor by file extension:
-```text
-.txt  → TextExtractor
-.docx → DOCXExtractor
-.pdf  → PDFExtractor
-```
-### TXT Extraction
-TXT files are read using UTF-8 text reading.
-### DOCX Extraction
-DOCX files are processed using `python-docx`.
-The extractor:
-* opens the document
-* reads paragraph text
-* ignores empty paragraphs
-* combines readable paragraphs
-### PDF Extraction
-PDF files are processed using `pypdf`.
-The extractor:
-* opens the PDF
-* iterates through pages
-* extracts machine-readable text
-* ignores pages without usable text
-* combines readable text
-The current implementation supports text-based PDFs.
-Scanned or image-only PDFs may require OCR in a future enhancement.
-### Processing Status Lifecycle
-Successful processing:
-```text
-uploaded
-↓
-processing
-↓
-text_extracted
-```
-Failed processing:
-```text
-uploaded
-↓
-processing
-↓
-processing_failed
-```
-### Empty Extraction Handling
-```text
-Extraction result
-↓
-No usable text
-↓
-processing_failed
-```
-The service raises a controlled `DocumentProcessingError`.
-### Processing Failure Handling
-Examples include:
-```text
-missing file
-corrupted document
-unreadable document
-unsupported extraction condition
-empty extracted text
-```
-The service:
-```text
-detects error
-↓
-sets status = processing_failed
-↓
-persists failed state
-↓
-raises DocumentProcessingError
-```
-### Processing API Errors
-```text
-Document does not exist
-→ 404 Not Found
-Authenticated user does not own document
-→ 403 Forbidden
-Document cannot be processed
-→ 400 Bad Request
-```
----
-## AI Classification & Extraction
-Phase 7 introduced DocuFlow's first real LLM-powered document-analysis pipeline.
-The AI layer takes machine-readable text produced by Phase 6, classifies the document, extracts supported structured business fields, validates the AI output, and persists the result.
-### Analysis Endpoint
-```text
-POST /documents/{document_id}/analyze
-```
-The endpoint requires authentication.
-Only the user who uploaded the document can currently trigger AI analysis.
-The document must already have:
-```text
-status = text_extracted
-```
-before analysis begins.
-### AI Analysis Flow
-```text
-Authenticated User
-↓
-POST /documents/{document_id}/analyze
-↓
-Find document in PostgreSQL
-↓
-Verify document ownership
-↓
-Verify status = text_extracted
-↓
-Set status = ai_processing
-↓
-Document Analysis Service
-↓
-Document AI Service
-↓
-Document Classifier
-↓
-Structured Extractor when supported
-↓
-Validate structured output with Pydantic
-↓
-Business Rules Engine
-↓
-Persist AI result
-↓
-Persist business-rule result
-↓
-Set status = analyzed
-↓
-Return safe document metadata
-```
-If classification or extraction fails:
-```text
-text_extracted
-↓
-ai_processing
-↓
-AI failure
-↓
-ai_processing_failed
-```
-### AI Layer Architecture
-```text
-app/ai/
-├── client.py
-├── classifier.py
-├── extractor.py
-├── prompts.py
-└── exceptions.py
-```
-Responsibilities:
-```text
-client.py
-→ creates/configures the OpenAI SDK client
-classifier.py
-→ determines document type
-extractor.py
-→ extracts supported structured fields
-prompts.py
-→ stores LLM instructions separately from orchestration logic
-exceptions.py
-→ exposes controlled DocuFlow AI-domain errors
-ai_schema.py
-→ validates structured AI outputs using Pydantic
-document_ai_service.py
-→ orchestrates classification and structured extraction
-document_analysis_service.py
-→ coordinates AI analysis, business rules, persistence, and document state
-document_repository.py
-→ persists AI results, business-rule results, and document statuses
-```
-Provider-specific logic is kept outside API routes and repositories.
-### Supported Classification Types
-The classifier currently recognizes:
-```text
-invoice
-contract
-sop
-hr_form
-purchase_request
-policy
-business_report
-support_ticket
-digital_form
-memo
-unknown
-```
-`unknown` is intentionally supported so the model is not forced to assign an incorrect business type.
-### Structured Invoice Extraction
-Invoice extraction is the first implemented document-specific extraction workflow.
-The validated invoice schema contains:
-```text
-invoice_number
-supplier
-invoice_date
-due_date
-currency
-subtotal
-tax
-total_amount
-```
-Missing values are allowed to remain `null`.
-The extraction prompt explicitly instructs the model not to invent missing business data.
-Example:
-```json
-{
-  "invoice_number": "INV-2026-001",
-  "supplier": "ABC Office Supplies",
-  "invoice_date": "2026-09-18",
-  "due_date": "2026-09-30",
-  "currency": "PHP",
-  "subtotal": 22000.0,
-  "tax": 2640.0,
-  "total_amount": 24640.0
-}
-```
-Monetary values currently use floating-point numbers in the AI-facing structured schema because this produces a Structured Outputs-compatible JSON schema.
-The deterministic business-rule layer converts financial values using:
-```python
-Decimal(str(total_amount))
-```
-before financial comparisons.
-### Structured Outputs and Validation
-DocuFlow does not trust free-form LLM responses directly.
-AI responses are validated against Pydantic schemas before the application uses or persists them.
-Classification uses:
-```text
-DocumentClassification
-document_type
-confidence
-```
-Invoice extraction uses:
-```text
-InvoiceExtraction
-invoice_number
-supplier
-invoice_date
-due_date
-currency
-subtotal
-tax
-total_amount
-```
-The combined result is represented by:
-```text
-DocumentAnalysisResult
-classification
-extracted_data
-```
-This provides a predictable contract between the AI layer and application services.
----
-## Business Rules
-Phase 8 introduced deterministic business-rule evaluation after AI classification and structured extraction.
-The AI is responsible for extracting facts.
-The business-rule layer is responsible for deciding what should happen based on those facts.
-```text
-AI
-→ What information is inside this document?
-Business Rules
-→ What should the system do based on that information?
-Workflow & Approval
-→ Carry out that decision
-```
-### Business Rules Architecture
-```text
-app/business_rules/
-├── __init__.py
-├── engine.py
-└── invoice_rules.py
-```
-Supporting schema:
-```text
-app/schemas/business_rule_schema.py
-```
-Responsibilities:
-```text
-business_rule_schema.py
-→ defines the validated BusinessRuleResult contract
-engine.py
-→ selects the appropriate document-specific rule evaluator
-invoice_rules.py
-→ contains deterministic invoice company-policy logic
-DocumentAnalysisService
-→ coordinates AI analysis, business-rule evaluation, and persistence
-document_repository.py
-→ persists the final decision
-```
-Business rules do not:
-* call OpenAI
-* handle HTTP
-* query PostgreSQL directly
-* create workflow records
-* create approval records
-### Business Rule Result
-Phase 8 produces a structured decision containing:
-```text
-requires_approval
-approval_role
-requires_manual_review
-next_action
-reason
-```
-Example:
-```json
-{
-  "requires_approval": true,
-  "approval_role": "manager",
-  "requires_manual_review": false,
-  "next_action": "manager_review",
-  "reason": "Invoice total exceeds the manager approval threshold."
-}
-```
-### Business Actions
-Current actions include:
-```text
-continue_processing
-manager_review
-manual_review
-```
-These values are controlled through `BusinessAction` rather than arbitrary strings.
-### Invoice Business Rules
-The current invoice MVP contains three deterministic paths.
-#### Missing Invoice Total
-```text
-total_amount = null
-↓
-requires_manual_review = true
-↓
-next_action = manual_review
-```
-#### High-Value Invoice
-Current MVP threshold:
-```text
-20,000
-```
-Rule:
-```text
-total_amount > 20,000
-↓
-requires_approval = true
-↓
-approval_role = manager
-↓
-next_action = manager_review
-```
-The threshold is represented using `Decimal`.
-Example:
-```text
-20,000.00
-→ continue_processing
-20,000.01
-→ manager_review
-```
-#### Normal Invoice
-```text
-total_amount <= 20,000
-↓
-requires_approval = false
-↓
-requires_manual_review = false
-↓
-next_action = continue_processing
-```
-### Unsupported Rule Types
-Phase 7 can classify document types whose detailed Phase 8 rules have not yet been implemented.
-For example:
-```text
-contract
-sop
-purchase_request
-policy
-```
-These documents are not silently treated as approved.
-Instead:
-```text
-rule type not implemented
-↓
-requires_manual_review = true
-↓
-next_action = manual_review
-```
-This provides a safe fallback while document-specific rules are added incrementally.
-### Business Rule Persistence
-The final rule result is serialized using:
-```text
-model_dump(mode="json")
-```
-and stored in:
-```text
-documents.business_rule_result
-```
-using PostgreSQL `JSONB`.
-This allows Phase 9 to consume the deterministic decision later.
-### Phase Boundary
-Phase 8 ends with:
-```text
-evaluate document
-↓
-produce BusinessRuleResult
-↓
-persist decision
-```
-Phase 8 does not create actual workflow or approval records.
-That belongs to Phase 9.
-```text
-Phase 8
-DECIDE
-Phase 9
-ACT
-```
----
-## Workflow & Approval
-Phase 9 turns deterministic Phase 8 decisions into persistent business-process state and human approval records.
-The boundary is:
-```text
-Phase 8
-DECIDE what should happen
-↓
-Phase 9
-ACT on that decision
-```
-### Workflow Architecture
-Phase 9 introduced:
-```text
-app/api/routes/workflow_routes.py
-app/repositories/workflow_repository.py
-app/repositories/approval_repository.py
-app/schemas/workflow_schema.py
-app/services/workflow_service.py
-```
-Responsibilities:
-```text
-workflow_routes.py
-→ handles HTTP workflow retrieval and approval requests
-workflow_schema.py
-→ defines workflow and approval API contracts
-workflow_service.py
-→ maps business decisions to workflow states
-→ validates approval-state transitions
-→ coordinates approval persistence and workflow updates
-workflow_repository.py
-→ creates, retrieves, and updates workflow records
-approval_repository.py
-→ creates and retrieves human approval decisions
-```
-### Phase 8 to Phase 9 Mapping
-The initial workflow state is derived from the validated `BusinessRuleResult`.
-```text
-continue_processing
-→ completed
-manager_review
-→ pending_approval
-manual_review
-→ needs_review
-```
-The workflow service does not re-evaluate invoice totals or duplicate Phase 8 business rules.
-### Workflow Statuses
-Current controlled workflow states are:
-```text
-needs_review
-needs_information
-pending_approval
-approved
-rejected
-completed
-```
-Document processing state and workflow state remain separate.
-Example:
-```text
-Document.status = analyzed
-Workflow.current_status = pending_approval
-```
-This means document analysis completed successfully while the business process is still waiting for a human decision.
-### Approval Decisions
-Current approval decisions are:
-```text
-approved
-rejected
-information_requested
-```
-A pending workflow may transition as follows:
-```text
-pending_approval
-├── approved              → approved
-├── rejected              → rejected
-└── information_requested → needs_information
-```
-Approval records preserve the human decision, approver identity, optional comment, and creation time.
-A pending approval request is represented by the workflow's `pending_approval` state. An `Approval` row is created only when a human decision is actually submitted.
-### Workflow Endpoints
-```text
-GET  /workflows/{workflow_id}
-POST /workflows/{workflow_id}/decision
-```
-`GET /workflows/{workflow_id}` requires authentication.
-Current visibility rules:
-```text
-employee
-→ may view workflows for documents they uploaded
-manager
-→ may view workflows
-admin
-→ may view workflows
-```
-`POST /workflows/{workflow_id}/decision` is restricted to:
-```text
-manager
-admin
-```
-Employees receive `403 Forbidden` when attempting to submit approval decisions.
-### Approval Request Example
-```json
-{
-  "decision": "approved",
-  "comment": "Approved for payment."
-}
-```
-The client does not provide `approver_id`.
-Instead:
-```text
-JWT
-↓
-get_current_user
-↓
-require_roles(manager, admin)
-↓
-current_user.id
-↓
-Approval.approver_id
-```
-This prevents a client from impersonating another approver.
-### Workflow Persistence
-Each document currently has at most one workflow because `workflows.document_id` is unique.
-A workflow stores:
-```text
-id
-document_id
-current_status
-priority
-recommended_action
-assigned_to
-created_at
-updated_at
-```
-Approval records store:
-```text
-id
-workflow_id
-approver_id
-decision
-comment
-created_at
-```
-One workflow can preserve multiple human decisions over time through its approval relationship.
-### Real End-to-End Phase 9 Verification
-Phase 9 was manually verified through Swagger and PostgreSQL using a high-value invoice.
-```text
-Upload invoice
-↓
-Process text
-↓
-Real OpenAI classification and extraction
-↓
-Phase 8 business rules
-↓
-manager_review
-↓
-Workflow created
-current_status = pending_approval
-↓
-Authenticated manager
-↓
-POST /workflows/{workflow_id}/decision
-↓
-Approval row created
-↓
-Workflow updated to approved
-```
-The manual verification confirmed a real response containing:
-```text
-workflow.current_status = approved
-approval.decision = approved
-approval.approver_id = authenticated manager
-```
-This verifies the real FastAPI route, authentication and role authorization, workflow service, repositories, SQLAlchemy relationships, and PostgreSQL persistence together.
----
-## RAG / Document Q&A
-Phase 10 introduced semantic document retrieval and grounded question answering.
-The feature is split into two major operations:
-```text
-INDEXING
-Processed document
-→ chunk text
-→ create embeddings
-→ store chunks + vectors in PostgreSQL
-QUESTION ANSWERING
-User question
-→ embed question
-→ search similar chunks
-→ build context
-→ generate grounded answer
-→ return answer + supporting chunks
-```
-### RAG Endpoints
-```text
-POST /documents/{document_id}/index
-POST /documents/{document_id}/ask
-```
-Both endpoints require authentication and enforce document ownership.
-### Document Indexing
-Indexing requires extracted document text.
-The indexing flow is:
-```text
-Document
-↓
-DocumentChunkingService
-↓
-TextChunker
-↓
-DocumentChunk rows
-↓
-DocumentEmbeddingService
-↓
-OpenAI embedding model
-↓
-1536-dimensional vectors
-↓
-pgvector persistence
-```
-Re-indexing replaces existing chunks for the document before storing a fresh index.
-### Paragraph-Aware Chunking
-The default chunking configuration is:
-```text
-chunk_size = 1000
-chunk_overlap = 200
-```
-Structured documents prefer paragraph boundaries so related information remains together.
-Plain unstructured text falls back to deterministic overlapping character chunks.
-A single paragraph larger than the configured chunk size also falls back to character-based splitting.
-### Embeddings
-Embedding configuration is controlled through environment settings:
-```env
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-OPENAI_EMBEDDING_DIMENSIONS=1536
-```
-Document chunks are embedded in batches and stored in PostgreSQL through pgvector.
-Questions are embedded using the same embedding configuration.
-### Semantic Retrieval
-Retrieval is scoped to one document.
-The repository:
-```text
-filters by document_id
-↓
-ignores chunks without embeddings
-↓
-orders chunks by pgvector cosine distance
-↓
-returns the top matching chunks
-```
-The current default retrieval limit is:
-```text
-top_k = 5
-```
-### Grounded Question Answering
-The Q&A generator receives only:
-```text
-question
--
-retrieved document context
-```
-The prompt instructs the model to answer only from that context and not invent unsupported information.
-When the available context is insufficient, the expected fallback is:
-```text
-I could not find enough information in the document to answer that question.
-```
-### Question Response
-The API returns both the answer and retrieved supporting chunks.
-Example shape:
-```json
-{
-  "answer": "Employees receive 15 days of annual leave per year.",
-  "sources": [
-    {
-      "chunk_index": 0,
-      "content": "Annual Leave ..."
-    }
-  ]
-}
-```
-The returned sources provide retrieval traceability for the generated answer.
-### Phase 10 End-to-End Verification
-Phase 10 was manually verified through Swagger using a real PDF.
-The verified flow was:
-```text
-Upload PDF
-↓
-Extract text
-↓
-Index document
-↓
-Chunk text
-↓
-Create real OpenAI embeddings
-↓
-Persist vectors in pgvector
-↓
-Ask document question
-↓
-Embed question
-↓
-Retrieve relevant chunks
-↓
-Generate grounded answer
-↓
-Return answer + sources
-```
-Unsupported-question behavior was also manually verified and correctly returned the insufficient-information fallback.
----
-## Dashboard & Audit Logs
-Phase 11 introduced system visibility through persistent audit history and dashboard summary metrics.
-### Audit Log Events
-DocuFlow records important business events using controlled AuditAction and AuditEntityType values.
-Current audited events include:
+Main application tables:
 
-USER_REGISTERED
-USER_LOGGED_IN
+- `users`, `documents`, `workflows`, `approvals`
+- `workflow_reviews`, `workflow_information_requests`
+- `audit_logs`, `document_chunks`
 
-DOCUMENT_UPLOADED
-DOCUMENT_TEXT_EXTRACTED
-DOCUMENT_CLASSIFIED
-DOCUMENT_FIELDS_EXTRACTED
+`documents.extracted_data` and `documents.business_rule_result` use JSONB. `document_chunks.embedding` is a 1536-dimensional pgvector column. `documents.storage_provider` records whether a file uses local or Supabase storage so existing and new objects can be resolved correctly.
 
-RULE_CHECK_COMPLETED
+**Current recorded Alembic head:** `50266c3b2d03`, which introduces persistent document storage-provider metadata. This revision was applied to the Supabase cloud database and verified before deployment.
 
-WORKFLOW_CREATED
-WORKFLOW_APPROVED
-WORKFLOW_REJECTED
-WORKFLOW_INFORMATION_REQUESTED
+Schema changes are managed with Alembic, not application-startup `Base.metadata.create_all()` calls. Create/apply migrations deliberately, review them, and verify the target environment:
 
-Audit records store:
-
-user_id
-action
-entity_type
-entity_id
-event_metadata
-created_at
-
-System-generated events may use user_id = null.
-Audit metadata stores useful context without copying entire business records or extracted document contents.
-### Audit Log Endpoints
-
-```text
-GET /audit-logs
-GET /audit-logs/{entity_type}/{entity_id}
-```
-
-Both endpoints are restricted to:
-
-```text
-manager
-admin
-```
-
-Employees receive `403 Forbidden`.
-
-`GET /audit-logs` returns the general audit feed from newest to oldest for the Phase 12 Audit Logs page.
-
-`GET /audit-logs/{entity_type}/{entity_id}` returns one entity's audit history in chronological order.
-### Dashboard Summary Endpoint
-
-GET /dashboard/summary
-
-The dashboard is restricted to:
-
-manager
-admin
-
-The current summary includes:
-
-total_documents
-documents_by_status
-documents_by_type
-total_workflows
-workflows_by_status
-
-Missing categories are normalized to 0 so the frontend receives a predictable response shape.
-### Dashboard Flow
-
-PostgreSQL
-
-↓
-
-Dashboard Repository
-
-↓
-
-COUNT / GROUP BY queries
-
-↓
-
-Dashboard Service
-
-↓
-
-DashboardSummaryResponse
-
-↓
-
-GET /dashboard/summary
-
-### Phase 11 Audit Flow
-
-Important user or system action
-
-↓
-
-Application Service
-
-↓
-
-AuditLogService
-
-↓
-
-AuditLog Repository
-
-↓
-
-audit_logs table
-
-↓
-
-Authorized audit-history API
-
----
-## AI Evaluations
-AI evaluations are kept separately from normal `pytest` software tests.
-```text
-tests/
-→ verifies deterministic software behavior
-evals/
-→ measures real AI/model quality using fixed ground-truth examples
-```
-Current evaluation commands:
 ```bash
-python -m evals.run_classification_eval
-python -m evals.run_invoice_extraction_eval
-python -m evals.run_rag_eval
+cd backend
+alembic current
+alembic upgrade head
 ```
-### Classification Evaluation
-Current result:
-```text
-6 / 7 correct
-85.71% accuracy
-```
-The current known miss is an `unknown` example classified as:
-```text
-memo
-```
-This result only measures performance on the current seven-case evaluation dataset.
-It should not be interpreted as real-world classification accuracy.
-### Invoice Extraction Evaluation
-Current result:
-```text
-24 / 24 fields correct
-100.00% field accuracy
-```
-This was measured across three invoice examples containing:
-```text
-complete fields
-missing fields
-invoice without tax
-```
-The extractor correctly preserved missing values as `None` rather than inventing values.
-### RAG Evaluation
-The Phase 10 RAG evaluation uses a deterministic handbook-style document containing multiple unrelated sections so retrieval must rank competing chunks.
-The final Phase 10 baseline is:
-```text
-Overall:   5 / 5 (100.00%)
-Retrieval: 5 / 5 (100.00%)
-Answers:   5 / 5 (100.00%)
-```
-The evaluation covers:
-```text
-direct factual retrieval
-paraphrased questions
-multiple competing document sections
-top-ranked source validation
-answer-content validation
-equivalent answer wording such as "12" and "twelve"
-```
-An earlier baseline using raw character chunking produced:
-```text
-Overall:   4 / 5 (80.00%)
-Retrieval: 4 / 5 (80.00%)
-Answers:   5 / 5 (100.00%)
-```
-Paragraph-aware chunking improved the retrieval baseline from 80% to 100% on the current five-case evaluation set.
-These results measure only the current controlled evaluation dataset and should not be interpreted as general real-world RAG accuracy.
-### Purpose of Evaluations
-Evaluations provide a measurable baseline for future changes to:
-```text
-prompts
-models
-schemas
-classification definitions
-extraction strategies
-```
-For example:
-```text
-Change prompts.py
-↓
-Run relevant eval
-↓
-Compare with previous baseline
-↓
-Keep or revert change
-```
-This helps detect AI regressions instead of relying only on subjective manual testing.
----
+
+**Production warning:** Use the intended production database connection only for controlled migrations; never run tests or migration commands against a production database unintentionally. Automated integration tests use a separate disposable test database. Automatic application deployment does not mean migrations are safely automated; plan migration execution and rollback explicitly.
+
+## Key API Endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Application health |
+| GET | `/health/database` | PostgreSQL connection health |
+| POST | `/auth/register` | Registration, **disabled in deployed production** |
+| POST | `/auth/login` | Authenticate and issue JWT |
+| GET | `/auth/me` | Current authenticated user |
+| POST | `/documents` | Authenticated upload |
+| GET | `/documents` | List permitted documents |
+| GET | `/documents/{document_id}` | Authorized document details |
+| POST | `/documents/{document_id}/process` | Extract text |
+| POST | `/documents/{document_id}/analyze` | AI analysis + business rules + routing |
+| POST | `/documents/{document_id}/index` | Create/recreate document vector index |
+| POST | `/documents/{document_id}/ask` | Grounded Q&A with source chunks |
+| GET | `/workflows` | List permitted workflows |
+| GET | `/workflows/{workflow_id}` | Workflow details |
+| POST | `/workflows/{workflow_id}/decision` | Approval/rejection/information request |
+| POST | `/workflows/{workflow_id}/review` | Manual-review decision |
+| GET | `/workflows/{workflow_id}/information-request` | Active information request |
+| POST | `/workflows/{workflow_id}/information-response` | Employee response |
+| GET | `/workflows/{workflow_id}/history` | Decision and response history |
+| GET | `/dashboard/summary` | Authorized aggregate metrics |
+| GET | `/audit-logs` | Authorized audit feed |
+| GET | `/audit-logs/{entity_type}/{entity_id}` | Audit history for an entity |
+
+Original-file view/download endpoints also exist; consult the running OpenAPI documentation for their exact paths and response contracts.
+
 ## Local Development
-### Requirements
-Install:
-* Python 3.12+
-* Docker Desktop
-* Node.js
-* Git
----
-## Start PostgreSQL
-From the project directory:
+
+### Prerequisites
+
+- Python 3.12 and a virtual environment
+- Node.js and npm
+- Docker Desktop (for local PostgreSQL with pgvector)
+- Git
+- OpenAI API credentials for actual model calls
+
+From the repository root, start local PostgreSQL:
+
 ```bash
 docker compose up -d
 ```
-PostgreSQL is exposed locally through:
-```text
-localhost:5434
-```
-The Docker container uses PostgreSQL's internal port:
-```text
-5432
-```
-Check running containers:
-```bash
-docker ps
-```
----
-## Backend Setup
-Navigate to:
-```bash
-cd backend
-```
-Create a virtual environment:
-```bash
-python -m venv .venv
-```
-Activate it on Windows PowerShell:
+
+The local database is published on port `5434` (container port `5432`).
+
+### Backend
+
 ```powershell
+cd backend
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-Install dependencies:
-```bash
 pip install -r requirements.txt
 ```
----
-## Environment Configuration
-Create:
-```text
-backend/.env
-```
-using `.env.example` as the reference.
-Relevant configuration includes:
-```env
+
+Create `backend/.env` from `backend/.env.example`. Keep it outside version control. For local development, use separate application and test database URLs.
+
+Example configuration **with placeholders only**:
+
+```dotenv
 APP_NAME=DocuFlow AI
 APP_ENV=development
 APP_DEBUG=true
+PUBLIC_REGISTRATION_ENABLED=true
 CORS_ALLOWED_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5434
-POSTGRES_DB=docuflow_db
-POSTGRES_USER=your_postgres_user
-POSTGRES_PASSWORD=your_postgres_password
-DATABASE_URL=postgresql+psycopg://your_postgres_user:your_postgres_password@localhost:5434/docuflow_db
-JWT_SECRET_KEY=your_secure_random_secret
+DATABASE_URL=postgresql+psycopg://LOCAL_USER:LOCAL_PASSWORD@localhost:5434/docuflow_db
+TEST_DATABASE_URL=postgresql+psycopg://LOCAL_USER:LOCAL_PASSWORD@localhost:5434/docuflow_test
+JWT_SECRET_KEY=REPLACE_WITH_RANDOM_SECRET_AT_LEAST_32_CHARS
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=your_configured_openai_model
+STORAGE_PROVIDER=local
+OPENAI_API_KEY=YOUR_OPENAI_API_KEY
+OPENAI_MODEL=YOUR_SUPPORTED_OPENAI_MODEL
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_EMBEDDING_DIMENSIONS=1536
-TEST_DATABASE_URL=postgresql+psycopg://your_postgres_user:your_postgres_password@localhost:5434/docuflow_test
 ```
-Never commit real secrets from `.env`.
-Generate a JWT secret with:
+
+Generate a JWT secret locally, then copy it **only** into your private environment configuration:
+
 ```bash
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
----
-## Database Migrations
-Alembic is used for schema migrations.
-Create a migration:
-```bash
-alembic revision --autogenerate -m "migration description"
-```
-Apply migrations:
+
+Run local migrations and start FastAPI:
+
 ```bash
 alembic upgrade head
-```
-Check the active migration:
-```bash
-alembic current
-```
-Development and production database schema changes should be applied through Alembic.
-Some PostgreSQL-native enum changes require manually authored Alembic migration commands because enum-value additions may not be generated automatically.
-### Phase 8 Migration
-Phase 8 introduced:
-```text
-5aaeace5f9f9
-```
-Description:
-```text
-add business rule result to documents
-```
-It adds:
-```text
-documents.business_rule_result
-```
-as a nullable PostgreSQL `JSONB` column.
-After applying Phase 8:
-```bash
-alembic current
-```
-should show:
-```text
-5aaeace5f9f9 (head)
-```
-### Phase 10 Migration
-Phase 10 introduced:
-```text
-a8be8ba6519c
-```
-Description:
-```text
-add document chunks for rag
-```
-The migration enables the PostgreSQL vector extension when needed and creates the document_chunks table with a vector(1536) embedding column.
-The development and test databases both require pgvector support. The latest locally verified Alembic head is `8636cfbbc134` and pgvector extension version was `0.8.2` in the local application database (October 2026).
-The Docker PostgreSQL image used by the project is:
-```text
-pgvector/pgvector:pg16
-```
----
-## Run the Backend
-From:
-```text
-backend/
-```
-run:
-```bash
 uvicorn app.main:app --reload
 ```
-The API is available at:
-```text
-http://127.0.0.1:8000
+
+Swagger: `http://127.0.0.1:8000/docs`.
+
+### Frontend
+
+From another terminal:
+
+```powershell
+cd frontend
+npm ci
 ```
-Swagger documentation:
-```text
-http://127.0.0.1:8000/docs
+
+Create `frontend/.env.local` with:
+
+```dotenv
+VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
----
-## Health Checks
-Application health:
-```text
-GET /health
+
+Then:
+
+```bash
+npm run dev
 ```
-Database health:
-```text
-GET /health/database
+
+Vite normally serves the local app at `http://localhost:5173`.
+
+## Cloud Deployment and Configuration
+
+### Production topology
+
+1. **Supabase:** Managed PostgreSQL, pgvector extension, and a **private** `docuflow-documents` Storage bucket. Schema migrated to `50266c3b2d03`. Database application connections use the Supabase-provided connection configuration; never invent a pooler hostname.
+2. **Render:** Free Docker Web Service, deployed from the `backend` repository directory. `backend/Dockerfile` runs FastAPI/Uvicorn on port `8000`; health check `/health`.
+3. **Vercel:** Hobby project deployed from `frontend`, Vite preset, output `dist`, with `VITE_API_BASE_URL` pointing to Render. `frontend/vercel.json` rewrites deep client routes to `/index.html`.
+4. **Browser:** HTTPS frontend requests the HTTPS backend, includes JWT for authenticated operations, and relies on backend authorization for access control.
+5. **OpenAI:** API credentials are available only in the backend environment; keys and Supabase server credentials must **never** be put in frontend `VITE_` variables.
+
+### Render environment variable names
+
+Configure these in Render's Environment settings (values omitted where sensitive):
+
+```dotenv
+APP_ENV=production
+APP_DEBUG=false
+PUBLIC_REGISTRATION_ENABLED=false
+PORT=8000
+CORS_ALLOWED_ORIGINS=["https://docuflow-ai-assistant.vercel.app"]
+DATABASE_URL=YOUR_SUPABASE_POSTGRESQL_PSYCOPG_URL
+JWT_SECRET_KEY=YOUR_PRIVATE_RANDOM_JWT_SECRET
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+STORAGE_PROVIDER=supabase
+SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+SUPABASE_SECRET_KEY=YOUR_PRIVATE_SUPABASE_SERVER_KEY
+SUPABASE_STORAGE_BUCKET=docuflow-documents
+OPENAI_API_KEY=YOUR_PRIVATE_OPENAI_API_KEY
+OPENAI_MODEL=YOUR_SUPPORTED_OPENAI_MODEL
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_EMBEDDING_DIMENSIONS=1536
 ```
-The database health endpoint verifies PostgreSQL connectivity using a lightweight SQL query.
----
-## Testing
-DocuFlow uses `pytest` for backend unit/integration tests and Vitest with React Testing Library for frontend tests. PostgreSQL integration tests use an isolated test database.
+
+Use the **Supabase base project URL** for `SUPABASE_URL`, **not** a URL ending in `/rest/v1` or `/storage/v1`. The SDK appends Storage paths itself. The production upload issue caused by an incorrectly combined `/rest/v1/storage/v1/...` path was resolved through environment configuration.
+
+`DATABASE_URL` is a distinct PostgreSQL connection string. For remote pooling, copy the exact **Session pooler** host supplied by Supabase; use the `postgresql+psycopg://` driver and SSL as appropriate. Do not confuse it with `SUPABASE_URL` or `SUPABASE_SECRET_KEY`.
+
+### Vercel environment configuration
+
+```dotenv
+VITE_API_BASE_URL=https://docuflow-ai-backend-ankq.onrender.com
+```
+
+Vite environment variables are embedded in the client bundle at build time and must never contain passwords, tokens, OpenAI keys, or Supabase service/secret keys.
+
+### SPA routing
+
+`frontend/vercel.json`:
+
+```json
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+```
+
+The fallback prevents Vercel `404 NOT_FOUND` when directly visiting or refreshing React Router URLs such as `/login` and `/documents`.
+
+### Continuous integration and deployment — Phase 14.6 verified
+
+DocuFlow uses **GitHub Actions for CI** and the connected hosting platforms for **CD**. Production releases are initiated by merging an eligible pull request into `main`; the merge is a human decision, while deployment is automatic under the current hosting configuration.
+
+```text
+Feature branch -> pull request
+         |
+         v
+GitHub Actions: Backend Tests and Quality + Frontend Tests and Build
+         |
+         v
+GitHub ruleset: both checks required, PR required, branch up to date
+         |
+         v
+Human merges PR into main
+         |
+         +--> Vercel: production React deployment
+         |
+         +--> Render: backend Docker deployment after CI checks pass
+                    (when changes are relevant to backend/)
+         |
+         v
+Production health checks, logs, and functional smoke tests
+```
+
+**Verified settings (November 5, 2026):**
+
+| Control | Current configuration |
+| --- | --- |
+| GitHub CI file | `.github/workflows/ci.yml` |
+| CI triggers | Pull requests targeting `main`; pushes to `main` |
+| Required GitHub checks | `Backend Tests and Quality`; `Frontend Tests and Build` |
+| Branch ruleset | `Protect main - CI required` targeting `main`, active, PR required, checks required, branch freshness required, force pushes/deletions blocked |
+| Vercel production branch | `main` |
+| Vercel source directory | `frontend/` |
+| Render connected branch | `main` |
+| Render root directory | `backend/` |
+| Render Auto-Deploy | `After CI Checks Pass` |
+| Render Dockerfile | `backend/Dockerfile` |
+
+**Observed verification:**
+
+- **PR #12** changed `docs/cd-verification.md`. Required CI passed; merge commit `e323bbf` was automatically deployed to Vercel production and marked **Ready**. Render did not deploy for this documentation-only change outside its root directory.
+- **PR #13** changed `backend/CD_VERIFICATION.md`. Required CI passed; after merging, Render displayed **New commit via Auto-Deploy** for commit `2f63117`, then **Deploy live**. The backend `/health` and `/health/database` endpoints both reported healthy.
+- Vercel created working preview deployments for the verification PRs; preview and production are separate environments.
+
+This verifies the **successful release path**, not every possible failure scenario. Do not assume that a green CI run guarantees correct business behavior, that all deployment failures have been tested, or that migrations, production secrets, rollback, backups, alerting, and monitoring are fully automated.
+
+**Root-directory behavior:** The Render service monitors code changes relevant to `backend/`, so a `docs/`-only PR is not an appropriate test of backend CD. The repository can keep separate frontend/backend release triggers without building both services for every documentation change.
+
+**Release and rollback runbook (current manual procedure):**
+
+1. Make changes on a feature branch; run relevant tests and review the diff for credentials or unrelated files.
+2. Open a PR, review the required GitHub Actions jobs, and merge only when checks succeed.
+3. Observe the Vercel production deployment and the Render backend deployment (if relevant); confirm the deployed commit IDs.
+4. Verify `/health`, `/health/database`, relevant user journeys, and logs. A green health endpoint alone does not establish feature correctness.
+5. If a bad release reaches production, use the hosting platform's supported rollback/redeploy mechanism to restore a known-good application version. Validate current platform controls, preserve database compatibility, and rerun smoke tests. Database schema rollback requires a separate reviewed plan and must not be assumed automatic.
+
+Temporary test files (`docs/cd-verification.md` and `backend/CD_VERIFICATION.md`) can be removed later through a separate reviewed PR after the verification has been recorded. The local `backend/scripts/` provisioning directory must not be staged indiscriminately; protect credentials and keep one-time operations controlled.
+
+### Production verification achieved
+
+- FastAPI health: healthy.
+- Database health: connected to Supabase PostgreSQL.
+- Production public registration: **HTTP 403**, as configured.
+- Provisioned employee account: production sign-in successful.
+- Synthetic invoice PDF: uploaded to private storage; text extracted; classified as invoice; analyzed; indexed; question answered with an included source chunk.
+
+This proves one functioning cloud workflow. It does **not** establish production readiness for arbitrary files, users, high traffic, or all authorization roles.
+
+## Testing and AI Evaluations
+
+### Automated software checks
 
 From `backend/`:
+
 ```bash
 pytest -q
 ruff check app tests
@@ -1880,6 +439,7 @@ pytest --cov=app --cov-branch --cov-report=term-missing -q
 ```
 
 From `frontend/`:
+
 ```bash
 npm test
 npm run lint
@@ -1887,1669 +447,94 @@ npm run build
 npm audit
 ```
 
-The coverage report creates `backend/.coverage`, which is generated local test data and must not be committed. The symlink security test may be skipped on Windows when the OS does not permit symlink creation. A skip is not evidence that the symlink scenario passed; verify it in a compatible environment when possible.
+Automated software tests cover authentication and authorization, document operations, storage behavior, extraction, AI service wrappers, invoice rules, workflow transitions, history, audit records, database persistence, and selected failure/concurrency cases. Production smoke testing complements—rather than replaces—these tests.
 
-**Historical Phase 13 verification (October 2026):** 252 backend tests passed, 1 skipped; 51 frontend tests passed across 10 test files; measured overall backend coverage 90% and workflow-history service coverage 96%; frontend lint and production build passed; npm audit found 0 vulnerabilities. The newer file-access regression test still requires a recorded final full-suite run before merging.
-### Health Tests
-Current health testing includes:
-* application health endpoint
-### Authentication Service Unit Tests
-Current authentication-service testing includes:
-* successful registration
-* duplicate email rejection
-* successful login
-* incorrect password rejection
-* unknown email rejection
-* inactive-user rejection
-### Authentication API Integration Tests
-Current authentication API testing includes:
-* successful registration
-* duplicate registration
-* successful login
-* incorrect password
-* unknown email
-* authenticated `/auth/me`
-* missing authentication
-* invalid JWT
-* employee authorization
-* manager authorization
-* admin authorization
-### Document Upload Service Tests
-Current testing includes:
-* successful document upload
-* unsupported extension rejection
-* empty-file rejection
-* oversized-file rejection
-* file cleanup when database persistence fails
-### Document Processing Service Tests
-Current testing includes:
-* successful text extraction
-* persistence of extracted text
-* transition to `text_extracted`
-* transition to `processing_failed` when extraction fails
-### TXT Extractor Tests
-* successful text extraction
-* missing-file rejection
-* directory-path rejection
-### DOCX Extractor Tests
-* successful paragraph extraction
-* empty-paragraph filtering
-* missing-file rejection
-* directory-path rejection
-### PDF Extractor Tests
-* missing-file rejection
-* directory-path rejection
-A dedicated successful PDF extraction fixture can be expanded later.
-### Extractor Factory Tests
-* TXT extractor selection
-* DOCX extractor selection
-* PDF extractor selection
-* case-insensitive extension handling
-* unsupported-extension rejection
-### Document API Integration Tests
-#### Upload
-* successful authenticated upload
-* authentication requirement
-* unsupported extension rejection
-* empty-file rejection
-* document database-record creation
-* physical file-storage verification
-* safe API response verification
-#### Processing
-* successful authenticated document processing
-* authentication requirement
-* unknown document rejection
-* cross-user processing rejection
-* extracted-text persistence
-* processing-status persistence
-#### AI Analysis and Business Rules
-* authenticated invoice analysis
-* AI result persistence
-* business-rule execution
-* `business_rule_result` JSONB persistence
-* high-value invoice manager-review routing
-* successful analyzed status through the HTTP API
-#### Document Details / Workflow Review
-* document owner can retrieve detailed document data
-* unrelated employee receives `403 Forbidden`
-* manager can review another user's document
-* admin can review another user's document
-* unknown document returns `404`
-* authentication is required
-* extracted text, summary, classification confidence, structured extraction, and business-rule data are returned
-* internal storage fields remain hidden
+### Model-quality evaluations
 
-The focused document API suite currently contains 24 passing tests.
-### AI Unit and Workflow Tests
-Phase 7 testing includes:
-* document-classifier success behavior
-* empty classification input rejection
-* missing parsed classification handling
-* provider classification error conversion
-* invoice-extractor success behavior
-* empty invoice input rejection
-* missing parsed extraction handling
-* provider extraction error conversion
-* missing optional invoice fields
-* `DocumentAIService` orchestration
-* supported and unsupported extraction routing
-* persistent document-analysis workflow
-* AI-processing status transitions
-* AI failure-state handling
-### Business Rule Tests
-Phase 8 testing includes:
-* missing invoice total requires manual review
-* high-value invoice requires manager approval
-* invoice exactly at approval threshold continues processing
-* invoice below approval threshold continues processing
-* invoice routing through `BusinessRulesEngine`
-* invoice without structured extraction is rejected
-* unsupported rule types fall back to manual review
-* `DocumentAnalysisService` returns a `BusinessRuleResult`
-* business-rule persistence call verification
-* PostgreSQL JSONB integration verification
-* high-value invoice persistence
-* missing-total persistence
-* normal-invoice persistence
-* unsupported document-type persistence
-* HTTP-level business-rule integration
-### Workflow Service Tests
-Phase 9 service testing includes:
-* manager-review action maps to `pending_approval`
-* manual-review action maps to `needs_review`
-* continue-processing action maps to `completed`
-* duplicate workflow creation is rejected
-* approved decisions map to `approved`
-* rejected decisions map to `rejected`
-* information requests map to `needs_information`
-* approval decisions are rejected for workflows not waiting for approval
-### Workflow API Integration Tests
-Workflow API testing includes:
-* authenticated workflow retrieval
-* unknown workflow returns `404`
-* employee cannot submit approval decisions
-* manager can approve a workflow
-* admin can approve a workflow
-* manager can reject a workflow
-* manager can request additional information
-* non-pending workflow decisions return `409 Conflict`
-* employee cannot view another user's workflow
-* manager can view another user's workflow
-* admin can view another user's workflow
-* employee workflow listing is restricted to owned documents
-* manager workflow listing includes cross-user workflows
-* admin workflow listing includes cross-user workflows
-* workflow listing requires authentication
-
-The focused workflow API suite currently contains 15 passing tests.
-### Workflow PostgreSQL Integration
-The document-analysis integration suite verifies real workflow persistence for:
-* high-value invoice → `pending_approval`
-* invoice with missing total → `needs_review`
-* normal invoice → `completed`
-* unsupported document rule type → `needs_review`
-### RAG Unit and Integration Tests
-Phase 10 testing includes:
-* paragraph-aware text chunking
-* overlapping character fallback
-* chunk validation rules
-* document chunk persistence
-* safe re-chunking behavior
-* OpenAI embedding wrapper behavior
-* embedding persistence
-* document indexing orchestration
-* pgvector cosine-similarity ranking
-* cross-document retrieval isolation
-* document retrieval service behavior
-* grounded Q&A generation
-* Q&A fallback when no chunks are available
-* answer source serialization
-* authenticated document indexing API behavior
-* authenticated document Q&A API behavior
-* ownership authorization for indexing and Q&A
-### Audit Log Tests
-Audit testing includes:
-* manager can retrieve entity audit history
-* admin can retrieve entity audit history
-* employee audit-history access is rejected
-* audit history is returned chronologically
-* entities without audit history return an empty list
-* manager can retrieve the general audit feed
-* admin can retrieve the general audit feed
-* employee access to the general audit feed is rejected
-* unauthenticated general audit access is rejected
-* the general audit feed is returned newest first
-* workflow creation records an audit event
-* approval, rejection, and information requests record the correct audit action
-* document upload records `DOCUMENT_UPLOADED`
-* successful text extraction records `DOCUMENT_TEXT_EXTRACTED`
-* successful AI analysis records classification, extraction, and business-rule audit events
-* failed operations do not create misleading success audit events
-
-The focused audit-log API suite currently contains 10 passing tests.
-### Dashboard API Integration Tests
-Phase 11 dashboard testing includes:
-* manager dashboard access
-* admin dashboard access
-* employee dashboard access rejection
-* total document counts
-* document counts grouped by status
-* document counts grouped by type
-* total workflow counts
-* workflow counts grouped by status
-* zero values for missing categories
-### Test Database
-A separate PostgreSQL test database is used for integration testing:
-```text
-docuflow_test
-```
-This prevents automated tests from modifying the normal development database.
-Temporary filesystem locations are also used during document tests to avoid polluting:
-```text
-backend/uploads/
-```
-The integration-test database is created from SQLAlchemy metadata and isolated using database transactions.
-### Historical Phase 12 Regression Snapshot
-The following are historical focused-suite counts from Phase 12, not the current full-suite totals:
-
-```text
-Workflow API: 15 passed
-Audit Log API: 10 passed
-Document API: 24 passed
-```
-
-To recheck the backend full suite, run:
+From `backend/`:
 
 ```bash
-pytest -v
+python -m evals.run_classification_eval
+python -m evals.run_invoice_extraction_eval
+python -m evals.run_rag_eval
 ```
 
-and record the exact full-suite count from that run. See the current-status section for the latest recorded Phase 14 backend run.
-
-Also verify backend formatting/linting and frontend production checks:
-
-```bash
-ruff format --check app tests
-ruff check app tests
-```
-
-```bash
-npm run lint
-npm run build
-```
-The test suite currently covers:
-* authentication
-* authorization
-* health checks
-* document upload services
-* document upload API behavior
-* filesystem integration
-* PostgreSQL persistence
-* TXT extraction
-* DOCX extraction
-* PDF extractor validation
-* extractor selection
-* document-processing services
-* document-processing API behavior
-* processing-status transitions
-* ownership authorization
-* AI classification behavior
-* invoice structured extraction behavior
-* AI orchestration
-* persistent AI-analysis workflow
-* AI failure-state handling
-* deterministic invoice business rules
-* business-rule engine routing
-* business-rule persistence
-* PostgreSQL JSONB rule-result persistence
-* business-rule API integration
-* workflow-service state mapping
-* duplicate-workflow protection
-* workflow PostgreSQL persistence
-* workflow retrieval authorization
-* manager/admin approval authorization
-* approval-record persistence
-* approval/rejection/information-request state transitions
-* invalid workflow transition handling
-* document chunk persistence
-* paragraph-aware chunking
-* embedding generation and persistence
-* pgvector similarity retrieval
-* retrieval isolation by document
-* RAG indexing orchestration
-* grounded Q&A generation
-* RAG source responses
-* document indexing API behavior
-* document Q&A API behavior
-* audit-log persistence and retrieval
-* audit-log role authorization
-* document/workflow audit events
-* dashboard aggregation queries
-* dashboard role authorization
-* dashboard API response counts
----
-## Code Quality
-Ruff is used for Python linting and formatting.
-Project-level Ruff configuration is stored in:
-```text
-backend/pyproject.toml
-```
-Run lint checks:
-```bash
-ruff check .
-```
-Check formatting:
-```bash
-ruff format --check .
-```
-Automatically fix supported lint issues:
-```bash
-ruff check . --fix
-```
-Format Python files:
-```bash
-ruff format .
-```
-After code-quality changes:
-```bash
-pytest -v
-```
-The FastAPI route layer includes a Ruff exception for rule `B008`, because FastAPI intentionally uses calls such as:
-```python
-Depends(...)
-File(...)
-```
-inside function parameter defaults.
----
-## Document Processing Pipeline
-DocuFlow's planned workflow is:
-```text
-Document Upload
-↓
-Text Extraction
-↓
-AI Classification
-↓
-Structured Data Extraction
-↓
-Business Rule Validation
-↓
-Workflow Routing
-↓
-Approval
-↓
-RAG / Document Q&A
-↓
-Dashboard & Audit Logs
-```
-The backend processing and visibility stages are now implemented:
-```text
-Document Upload                  ✅
-Text Extraction                  ✅
-AI Classification & Extraction  ✅
-Business Rule Validation         ✅
-Workflow Routing & Approval      ✅
-RAG / Document Q&A               ✅
-Dashboard & Audit Logs           ✅
-```
-The Phase 12 frontend is now implemented and connected to the backend.
-
-```text
-Authentication / Role Routing     ✅
-Dashboard                         ✅
-Documents                         ✅
-Document Upload / Process         ✅
-AI Analyze                        ✅
-RAG Index / Q&A                   ✅
-Workflows                         ✅
-Human Approval Decisions          ✅
-Workflow Document Review          ✅
-Audit Logs                        ✅
-```
-
-Phase 13 testing and reliability work has been merged. Phase 14 — Deployment / DevOps is underway; local Docker verification and GitHub Actions CI do not yet constitute a cloud production deployment.
----
-## Supported Document Types
-DocuFlow is designed to support:
-* Invoice
-* SOP
-* Contract
-* HR Form
-* Purchase Request
-* Policy Document
-* Business Report
-* Support Ticket
-* Digital Form
-* Memo / Announcement
-Uploaded documents initially begin with:
-```text
-document_type = unknown
-```
-Phase 6 extracts machine-readable text.
-Phase 7 classifies that text using the AI layer.
-Structured extraction is currently implemented for invoices.
-Phase 8 contains detailed deterministic rules for invoices.
-Phase 9 converts the resulting business action into a persistent workflow state and supports manager/admin approval decisions for workflows that require approval.
-Phase 10 indexes extracted document text into pgvector and supports grounded semantic document Q&A with returned source chunks.
-Phase 11 adds manager/admin dashboard summaries and persistent audit history for important document and workflow actions.
-Other classified document types currently fall back to manual review until their structured extraction and document-specific business rules are implemented.
-Additional document-specific extraction schemas and business rules can be added incrementally as requirements grow.
----
-## Development Phases
-```text
-Phase 1  — Project Setup                       ✅ Completed
-Phase 2  — Backend Foundation                  ✅ Completed
-Phase 3  — Database Design                     ✅ Completed
-Phase 4  — Authentication & Authorization      ✅ Completed
-Phase 5  — Document Upload                     ✅ Completed
-Phase 6  — Document Processing                 ✅ Completed
-Phase 7  — AI Classification & Extraction      ✅ Completed
-Phase 8  — Business Rules                      ✅ Completed
-Phase 9  — Workflow & Approval                 ✅ Completed
-Phase 10 — RAG / Document Q&A                 ✅ Completed
-Phase 11 — Dashboard & Audit Logs              ✅ Completed
-Phase 12 — Frontend                            ✅ Implemented
-Phase 12.5 — MVP Workflow Completion & UI       ✅ Implemented
-Phase 13 — Testing & Reliability                ✅ Merged into main
-Phase 14 — Deployment / DevOps                 🔄 In progress (CI and local backend Docker verified)
-```
-The project is developed incrementally, with each phase implemented, tested, reviewed, documented, and committed before the next major phase begins.
----
-## Phase 6 Completion Summary
-Phase 6 introduced DocuFlow's document-ingestion and text-extraction pipeline.
-Implemented:
-```text
-Base extractor interface
-TXT extraction
-DOCX extraction
-PDF extraction
-Extractor factory
-Document processing service
-Processing status transitions
-Processing failure handling
-Domain-specific processing errors
-Authenticated processing endpoint
-Document ownership authorization
-PostgreSQL extracted-text persistence
-Processing unit tests
-Processing API integration tests
-Ruff project configuration
-```
-Current Phase 6 flow:
-```text
-Uploaded Document
-↓
-POST /documents/{document_id}/process
-↓
-Authentication
-↓
-Document Lookup
-↓
-Ownership Authorization
-↓
-status = processing
-↓
-Extractor Factory
-↓
-TXT / DOCX / PDF Extractor
-↓
-Extracted Text
-↓
-Save extracted_text
-↓
-status = text_extracted
-↓
-Document Ready for AI Classification
-```
----
-## Phase 7 Completion Summary
-Phase 7 introduced DocuFlow's first production-style LLM integration for document classification and structured extraction.
-Implemented:
-```text
-OpenAI provider configuration
-Dedicated AI client layer
-Document classification prompt
-Structured invoice extraction prompt
-Pydantic structured-output schemas
-DocumentClassifier
-InvoiceExtractor
-AI-specific controlled exceptions
-DocumentAIService orchestration
-DocumentAnalysisService persistent workflow
-AI processing status lifecycle
-AI analysis endpoint
-Document ownership enforcement
-AI API error handling
-classification_confidence persistence
-JSONB extracted_data persistence
-Alembic migrations for AI fields and statuses
-Real OpenAI end-to-end verification
-Classification evaluation suite
-Invoice extraction evaluation suite
-```
-Current Phase 7 flow:
-```text
-Document with extracted text
-↓
-POST /documents/{document_id}/analyze
-↓
-Authentication
-↓
-Document Lookup
-↓
-Ownership Authorization
-↓
-Validate status = text_extracted
-↓
-status = ai_processing
-↓
-Document Classifier
-↓
-Validated DocumentClassification
-↓
-If invoice:
-Invoice Extractor
-↓
-Validated InvoiceExtraction
-↓
-Persist document_type
-↓
-Persist classification_confidence
-↓
-Persist extracted_data
-↓
-Pass validated data into Phase 8
-```
-Current AI quality baseline:
-```text
-Classification eval:
-6 / 7 correct
-85.71% on current evaluation set
-Invoice extraction eval:
-24 / 24 fields correct
-100.00% on current evaluation set
-```
----
-## Phase 8 Completion Summary
-Phase 8 introduced DocuFlow's deterministic business-rule layer.
-The objective was to separate AI understanding from company policy.
-```text
-Phase 7
-AI determines the facts
-↓
-Phase 8
-Deterministic Python rules determine what should happen
-↓
-Phase 9
-Workflow and approval logic will execute the decision
-```
-Implemented:
-```text
-Dedicated business_rules package
-BusinessRuleResult Pydantic contract
-BusinessAction controlled values
-BusinessRulesEngine
-Invoice-specific deterministic rules
-Manager approval threshold
-Decimal-based financial comparison
-Manual-review handling for missing invoice totals
-Continue-processing path for normal invoices
-Manual-review fallback for unsupported document rule types
-DocumentAnalysisService business-rule integration
-business_rule_result JSONB persistence
-Document repository persistence helper
-Alembic migration for business_rule_result
-Invoice-rule unit tests
-BusinessRulesEngine unit tests
-DocumentAnalysisService integration tests
-Real PostgreSQL persistence tests
-HTTP API integration verification
-Real Swagger/OpenAI invoice verification
-```
-### Current Phase 8 Flow
-```text
-Validated DocumentAnalysisResult
-↓
-BusinessRulesEngine
-↓
-Determine document rule type
-↓
-Invoice Rules when document_type = invoice
-↓
-BusinessRuleResult
-↓
-Serialize to JSON-compatible data
-↓
-Persist business_rule_result
-↓
-status = analyzed
-```
-### Current Invoice Rules
-```text
-Missing total amount
-→ manual_review
-Total amount <= 20,000
-→ continue_processing
-Total amount > 20,000
-→ manager_review
-```
-Example high-value invoice:
-```text
-Total Amount: 28,000
-↓
-BusinessRulesEngine
-↓
-Invoice Rules
-↓
-requires_approval = true
-approval_role = manager
-next_action = manager_review
-```
-### Unsupported Document Rules
-If Phase 7 classifies a document successfully but Phase 8 does not yet have detailed rules for that type:
-```text
-Contract / SOP / Purchase Request / etc.
-↓
-BusinessRulesEngine
-↓
-manual_review
-```
-The system does not silently assume that unsupported documents have passed business validation.
-### Persistence
-Phase 8 stores its decision in:
-```text
-documents.business_rule_result
-```
-using PostgreSQL `JSONB`.
-Migration:
-```text
-5aaeace5f9f9
-add business rule result to documents
-```
-### Real End-to-End Verification
-Phase 8 was manually verified through Swagger using a real invoice.
-```text
-Upload invoice
-↓
-Process text
-↓
-Real OpenAI classification
-↓
-Real structured invoice extraction
-↓
-Business Rules Engine
-↓
-High-value invoice rule
-↓
-manager_review
-↓
-Persist decision in PostgreSQL
-```
-This confirmed that the real FastAPI application, OpenAI integration, business-rule layer, repository layer, SQLAlchemy, Alembic-managed schema, and PostgreSQL database work together.
-Phase 9 now consumes the deterministic Phase 8 decision and turns it into persistent workflow state and human approval records.
-The intended boundary is:
-```text
-Phase 8
-DECIDE
-↓
-Phase 9
-ACT
-```
----
-## Phase 9 Completion Summary
-Phase 9 introduced DocuFlow's persistent workflow-routing and human-approval layer.
-The objective was to turn the deterministic Phase 8 decision into real business-process state.
-```text
-Phase 8
-DECIDE
-↓
-BusinessRuleResult
-↓
-Phase 9
-ACT
-```
-Implemented:
-```text
-WorkflowResponse and approval Pydantic schemas
-Workflow repository
-Approval repository
-WorkflowService
-BusinessAction → WorkflowStatus mapping
-Duplicate-workflow protection
-Persistent workflow creation during document analysis
-Manager/admin approval authorization
-Workflow retrieval endpoint
-Approval decision endpoint
-Approval record persistence
-Workflow status updates after human decisions
-Employee workflow ownership visibility controls
-Manager/admin cross-user workflow visibility
-Invalid workflow-state protection
-Workflow service unit tests
-Workflow API integration tests
-Real PostgreSQL workflow persistence verification
-Real Swagger approval verification
-```
-### Current Phase 9 Flow
-```text
-DocumentAnalysisService
-↓
-Validated BusinessRuleResult
-↓
-WorkflowService.create_from_business_rule(...)
-↓
-Map next_action to WorkflowStatus
-↓
-Persist Workflow
-↓
-If pending approval:
-Manager/Admin submits decision
-↓
-WorkflowService.record_approval_decision(...)
-↓
-Persist Approval
-↓
-Update Workflow.current_status
-```
-### Initial Workflow Mapping
-```text
-continue_processing
-→ completed
-manager_review
-→ pending_approval
-manual_review
-→ needs_review
-```
-### Human Approval Mapping
-```text
-approved
-→ approved
-rejected
-→ rejected
-information_requested
-→ needs_information
-```
-### Authorization
-Workflow retrieval currently enforces:
-```text
-employee
-→ own document workflows only
-manager
-→ permitted
-admin
-→ permitted
-```
-Approval decisions enforce:
-```text
-employee
-→ forbidden
-manager
-→ permitted
-admin
-→ permitted
-```
-The backend derives `approver_id` from the authenticated user instead of accepting it from the client.
-### Phase 9 End-to-End Verification
-The real Phase 9 flow was manually verified through Swagger.
-A high-value invoice produced:
-```text
-manager_review
-↓
-workflow.current_status = pending_approval
-```
-An authenticated manager then submitted an approval decision:
-```json
-{
-  "decision": "approved",
-  "comment": "Approved during Phase 9 verification."
-}
-```
-The application returned and persisted:
-```text
-workflow.current_status = approved
-approval.decision = approved
-approval.approver_id = authenticated manager
-```
-This confirms that Phase 7 AI analysis, Phase 8 deterministic decisions, Phase 9 workflow creation, role authorization, human approval, repositories, SQLAlchemy, and PostgreSQL operate together as one application flow.
----
-## Phase 10 Completion Summary
-Phase 10 introduced DocuFlow's RAG-based semantic document retrieval and grounded question-answering layer.
-Implemented:
-```text
-pgvector-enabled PostgreSQL
-document_chunks database model
-Alembic migration for document chunks and vector support
-Document-to-chunk relationship
-Paragraph-aware TextChunker
-Character-based chunking fallback
-Chunk persistence repository
-OpenAI embedding wrapper
-DocumentEmbeddingService
-DocumentIndexingService
-Cosine-similarity pgvector retrieval
-DocumentRetrievalService
-Grounded DocumentQAGenerator
-DocumentQAService
-Document indexing endpoint
-Document question-answering endpoint
-Answer source chunks
-Ownership authorization for RAG endpoints
-Controlled unsupported-question fallback
-RAG unit and integration tests
-Real PDF Swagger verification
-Dedicated RAG evaluation suite
-```
-### Current Phase 10 Flow
-```text
-Processed Document
-↓
-POST /documents/{document_id}/index
-↓
-TextChunker
-↓
-DocumentChunk rows
-↓
-OpenAI embeddings
-↓
-pgvector
-↓
-POST /documents/{document_id}/ask
-↓
-Embed question
-↓
-Cosine-similarity retrieval
-↓
-Top relevant chunks
-↓
-DocumentQAGenerator
-↓
-Grounded answer + sources
-```
-### RAG Evaluation Baseline
-The final controlled Phase 10 evaluation produced:
-```text
-Overall:   5 / 5 (100.00%)
-Retrieval: 5 / 5 (100.00%)
-Answers:   5 / 5 (100.00%)
-```
-The retrieval baseline improved from 80% to 100% after replacing raw character-only chunking with paragraph-aware chunking while retaining character fallback behavior.
-The full regression suite also passed:
-```text
-131 passed
-```
-Manual Swagger verification confirmed successful real-PDF indexing, semantic retrieval, grounded question answering, source return, and unsupported-question handling.
-DocuFlow is now ready to move into:
-```text
-Phase 11 — Dashboard & Audit Logs
-```
----
-## Phase 11 Completion Summary
-Phase 11 introduced DocuFlow's dashboard summary and persistent audit-history layer.
-The objective was to make important system activity both visible and traceable without mixing reporting or audit behavior into API routes or repositories that serve other responsibilities.
-Implemented:
-
-AuditLog repository
-
-AuditLog service
-
-AuditLog response schema
-
-Audit-history API route
-
-Manager/admin audit-history authorization
-
-DOCUMENT_UPLOADED audit event
-
-DOCUMENT_TEXT_EXTRACTED audit event
-
-DOCUMENT_CLASSIFIED audit event
-
-DOCUMENT_FIELDS_EXTRACTED audit event
-
-RULE_CHECK_COMPLETED audit event
-
-WORKFLOW_CREATED audit event
-
-WORKFLOW_APPROVED audit event
-
-WORKFLOW_REJECTED audit event
-
-WORKFLOW_INFORMATION_REQUESTED audit event
-
-Dashboard repository
-
-Dashboard aggregation queries
-
-Dashboard service
-
-Dashboard response schemas
-
-Dashboard summary API route
-
-Manager/admin dashboard authorization
-
-Document totals
-
-Document counts by status
-
-Document counts by type
-
-Workflow totals
-
-Workflow counts by status
-
-Audit-log API integration tests
-
-Dashboard API integration tests
-
-Full regression verification
-
-Ruff lint and format verification
-
-### Current Audit Flow
-
-Document / Workflow Action
-
-↓
-
-Application Service
-
-↓
-
-AuditLogService
-
-↓
-
-AuditLog Repository
-
-↓
-
-PostgreSQL audit_logs
-
-↓
-
-GET /audit-logs/{entity_type}/{entity_id}
-
-↓
-
-Manager / Admin
-
-Audit records answer:
-
-Who performed the action?
-
-What happened?
-
-What entity was affected?
-
-Which entity record was affected?
-
-What useful extra context exists?
-
-When did it happen?
-
-System-generated actions use a nullable user identity when no human directly performed the event.
-### Current Dashboard Flow
-
-Documents + Workflows
-
-↓
-
-PostgreSQL aggregation
-
-↓
-
-Dashboard Repository
-
-↓
-
-Dashboard Service
-
-↓
-
-DashboardSummaryResponse
-
-↓
-
-GET /dashboard/summary
-
-↓
-
-Manager / Admin
-
-The current dashboard response reports:
-
-total_documents
-
-documents_by_status
-
-documents_by_type
-
-total_workflows
-
-workflows_by_status
-
-Missing statuses and document types are represented as zero values so Phase 12 can render the dashboard without special handling for missing keys.
-### Phase 11 Authorization
-
-employee
-
-→ dashboard forbidden
-→ audit-history API forbidden
-
-manager
-
-→ dashboard permitted
-→ audit-history API permitted
-
-admin
-
-→ dashboard permitted
-→ audit-history API permitted
-
-### Phase 11 Verification
-Phase 11 was verified with focused API and service tests plus the full regression suite.
-Verification covered:
-
-audit event creation
-
-audit event retrieval
-
-chronological audit history
-
-role authorization
-
-document audit integration
-
-AI-analysis audit integration
-
-workflow-decision audit integration
-
-dashboard document counts
-
-dashboard workflow counts
-
-zero-value normalization
-
-FastAPI route registration
-
-full pytest regression
-
-Ruff linting
-
-Ruff formatting
-
-The exact final test count should be recorded from the latest local pytest -v output when committing the completed phase.
-DocuFlow is now ready to move into:
-
-Phase 12 — Frontend
+Historical controlled evaluation baselines:
+
+| Evaluation | Recorded result | Important limitation |
+| --- | --- | --- |
+| Document classification | 6/7 = **85.71%** | Seven fixed examples; one unknown-type miss |
+| Invoice extraction | 24/24 fields = **100%** | Three sample invoices, not production-scale accuracy |
+| RAG | 5/5 retrieval; 5/5 answers | Five controlled questions, not broad real-world performance |
+
+The RAG retrieval baseline improved from 4/5 to 5/5 on this fixed set after introducing paragraph-aware chunking. Model changes should be assessed with representative evaluations, not just a successful single document.
+
+## Known Limitations and Operational Priorities
+
+- **Public API exposure:** Registration is disabled, but the API remains internet reachable. Rate limits, login-abuse defenses, AI request quotas, and broader cost controls require review before allowing public use.
+- **AI spending:** OpenAI requests may incur charges. Set appropriate account/project limits and alerts; do not assume alerts provide hard request blocking.
+- **Cold starts:** Render Free may sleep after inactivity. The frontend Axios client currently uses a **10-second timeout**, which can be shorter than a cold-start delay. Revisit request-specific timeouts and user-facing retry handling if needed.
+- **Synchronous AI operations:** Time-consuming processing and model operations may benefit from queues/workers, timeouts, retry policy, and observability later; none is implied to exist today.
+- **Document compatibility:** Text-based PDFs work; scanned PDFs need OCR. Structured extraction and specific rules currently focus on invoices.
+- **Role coverage:** Employee, Manager, and Admin roles exist; manager and admin currently overlap in their document/workflow privileges. Dedicated administrative user-management features are not implemented. Production employee document and RAG flow was demonstrated; cross-role approval and information-request journeys still need targeted cloud verification.
+- **Storage and recovery:** Supabase Storage is private; review retention, orphan-object cleanup, storage quota, backups, restoration, and failed-request reconciliation.
+- **Privacy and logs:** Avoid genuine confidential customer documents in the public demo; use synthetic data. Avoid printing secret-bearing Pydantic settings or provider exception bodies. Rotate a secret immediately if exposed in logs or screenshots.
+- **Security and release process:** Keep server secrets in Render, audit privileged Supabase database permissions, enforce least privilege, maintain PR/branch protections, and practice rollback and recovery. A basic release/rollback runbook is documented; a failed-release exercise remains pending.
+- **CI/CD scope:** The successful PR-to-production release path is verified. Failure-injection exercises, complete deployment gating across all service types, monitoring/alerting, backup-restore tests, and database migration rollback remain future hardening work.
+
+## Phase 15 — Planned: Admin User Management & RBAC Refinement
+
+**Status: planned, not implemented.** The current codebase supports `employee`, `manager`, and `admin` roles. Manager and Admin presently have similar access to reviews, workflow decisions, dashboards, and audit logs. Production accounts were created through a controlled local provisioning process and privileged database role updates; the application does **not** have an Admin User Management UI or API yet.
+
+**Goal:** Establish clearer separation between business review duties and privileged account administration, without rebuilding the modular monolith or weakening existing authorization.
+
+### Proposed MVP scope (to validate after inspecting the repository)
+
+1. **Admin-only user directory:** List user IDs, display names, email addresses, assigned roles, and active/inactive status. Do not expose password hashes or sensitive authentication data.
+2. **Role changes:** Add a tightly authorized, validated workflow for promoting and demoting users; reject unsupported roles and unauthorized requests.
+3. **Account activation/deactivation:** Allow designated administrators to control access, with documented behavior for existing sessions and protected user actions.
+4. **Auditability:** Record actor, target, old/new role or status, and timestamp for privileged changes without leaking secrets.
+5. **Safety rules:** Prevent accidental removal/deactivation of the last active admin; consider self-demotion restrictions, concurrent updates, transactional consistency, and least-privilege permissions.
+6. **Dedicated frontend view:** Show user-management controls only to admins, but enforce every permission in FastAPI. Frontend visibility is never the security boundary.
+7. **Tests and release:** Cover employee/manager denial, admin success, invalid state changes, concurrency and audit records, and relevant cross-role regressions. Use the protected GitHub PR and CI/CD release process.
+
+### Architectural boundaries
+
+Extend existing authentication, `User` model, user repository, FastAPI authorization dependencies, audit services, and React protected routing **only after inspecting their actual current implementations**. Define the API schemas and business rules before choosing endpoints or new database fields. Do not assume a new table or migration is needed; the existing user record already contains role and active status.
+
+The choice of whether Admin should retain manager-style approval privileges is a **product-policy decision** for Phase 15, not something to change implicitly as part of adding a user list. Preserve present behavior until requirements and migration impacts are agreed upon.
+
+### Phase 15 acceptance criteria (planned)
+
+- Admin can view and manage eligible users through authenticated, validated backend endpoints and a dedicated interface.
+- Employee/Manager cannot call Admin APIs successfully, including through direct HTTP requests.
+- Privileged account changes are audited and transactionally consistent.
+- Last-admin and concurrent-update protections are covered by tests.
+- Existing document, workflow, and RAG permissions do not regress.
+- New behavior is reviewed through PR, CI, deployment, and cloud smoke tests.
+
+## Development History
+
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 1–3 | Setup, backend foundation, database design | Implemented |
+| 4 | JWT authentication and authorization | Implemented |
+| 5–6 | Upload and text processing | Implemented |
+| 7–8 | AI classification/extraction and deterministic business rules | Implemented |
+| 9 | Workflow and approvals | Implemented |
+| 10 | RAG and document Q&A | Implemented |
+| 11 | Dashboard and audit logs | Implemented |
+| 12 | React frontend | Implemented |
+| 12.5 | Manual review, information exchange, file access, history, UI redesign | Implemented |
+| 13 | Automated testing and reliability hardening | Merged into `main` |
+| 14.1–14.3 | CI, production configuration, local Docker | Implemented |
+| 14.4 | Cloud storage adapter and provider persistence | Merged into `main` |
+| 14.5 | Supabase/Render/Vercel deployment and cloud smoke testing | Deployed; final operational hardening pending |
+| 14.6 | Protected PRs, GitHub Actions CI, automatic Vercel/Render production deployments | **Core CI/CD release path verified** |
+| 15 | Admin User Management & RBAC Refinement | **Planned — not yet implemented** |
+
+The project is intentionally built phase by phase: **requirements → inspect code → design → implement → test → review → pull request → deploy → monitor → iterate**.
 
 ---
 
-## Phase 12 Frontend Implementation Summary
-Phase 12 introduced DocuFlow's authenticated React frontend and connected the previously completed backend features into one usable application.
-
-### Implemented
-```text
-React + Vite + TypeScript application shell
-React Router navigation
-JWT token persistence
-Axios request interceptor
-Authenticated route protection
-Role-aware route protection
-Role-aware sidebar navigation
-Login flow
-Dashboard summary page
-Document listing
-Document upload
-Document processing
-AI analysis action
-RAG indexing
-Document Q&A with source chunks
-Workflow listing
-Manager/admin workflow decisions
-Workflow document-review details
-Audit-log feed
-Loading, empty, success, and error states
-Production TypeScript build verification
-Frontend lint verification
-```
-
-### Frontend Authentication Flow
-```text
-Login
-↓
-POST /auth/login
-↓
-Persist JWT
-↓
-GET /auth/me
-↓
-Resolve authenticated user + role
-↓
-Protected application layout
-↓
-Role-aware navigation
-```
-
-Employees are routed to document-oriented functionality.
-
-Managers and administrators additionally receive access to dashboard and audit-log screens.
-
-### Document Frontend Flow
-```text
-Documents Page
-↓
-GET /documents
-↓
-Upload
-↓
-POST /documents
-↓
-Process
-↓
-POST /documents/{document_id}/process
-↓
-Analyze
-↓
-POST /documents/{document_id}/analyze
-↓
-Index
-↓
-POST /documents/{document_id}/index
-↓
-Ask
-↓
-POST /documents/{document_id}/ask
-↓
-Grounded answer + source chunks
-```
-
-The document list also exposes the derived `is_indexed` state so the frontend can decide whether to show Index or Ask actions.
-
-### Workflow Frontend Flow
-```text
-Workflows Page
-↓
-GET /workflows
-↓
-Employee
-→ own workflows only
-
-Manager / Admin
-→ all workflows
-↓
-Pending Approval
-↓
-Review
-↓
-GET /documents/{document_id}
-↓
-Document metadata
-AI classification confidence
-Structured extracted data
-Business-rule result
-Extracted text
-↓
-Human Decision
-↓
-POST /workflows/{workflow_id}/decision
-↓
-Approved / Rejected / Needs Information
-```
-
-The decision controls remain disabled while document details are unavailable, so managers do not approve a workflow without the review context successfully loading.
-
-### Audit Logs Frontend Flow
-```text
-Manager / Admin
-↓
-Audit Logs Page
-↓
-GET /audit-logs
-↓
-Newest audit events first
-↓
-Action
-Entity
-Entity ID
-User / System
-Metadata
-Timestamp
-```
-
-Entity-specific chronological history remains available through:
-
-```text
-GET /audit-logs/{entity_type}/{entity_id}
-```
-
-### Dashboard Frontend Flow
-```text
-Manager / Admin
-↓
-GET /dashboard/summary
-↓
-Document totals
-Document counts by status
-Document counts by type
-Workflow totals
-Workflow counts by status
-↓
-Dashboard cards / summaries
-```
-
-### Phase 12 Backend Support Added
-The frontend required a small number of read-oriented backend extensions:
-
-```text
-GET /workflows
-GET /audit-logs
-GET /documents/{document_id}
-```
-
-`GET /documents/{document_id}` uses a dedicated `DocumentDetailResponse` instead of expanding the lightweight list response.
-
-Review-facing fields include:
-
-```text
-extracted_text
-summary
-classification_confidence
-extracted_data
-business_rule_result
-```
-
-Internal storage fields remain private.
-
-### Phase 12 Focused Regression Verification
-Current focused backend results:
-
-```text
-Workflow API: 15 passed
-Audit Log API: 10 passed
-Document API: 24 passed
-```
-
-Frontend verification has included:
-
-```text
-npm run lint
-npm run build
-```
-
-Before the Phase 12 commit, run the complete backend regression suite and final lint/build commands and record the exact full-suite result.
-
-### Phase 12 Status
-Phase 12 frontend implementation is complete. Phase 12.5 adds the integrated human-review flows and a redesigned UI; see the Phase 12.5 summary below. Final end-to-end regression and deployment readiness remain Phase 13 work.
-
-Next:
-
-```text
-Phase 13 — Testing
-```
-
----
-
-## Phase 12.5 — MVP Workflow Completion & UI Redesign (October 2026)
-
-Phase 12.5 closes key human-in-the-loop gaps identified after the initial frontend implementation. It builds on the original phases rather than replacing the document-processing, AI, business-rule, RAG, or security layers. **Implementation is complete according to the development handoff; final cross-role browser regression, documentation review, and commit are separate closing tasks.**
-
-### Implemented Workflow Capabilities
-
-- **Manual review resolution:** Managers/admins can resolve invoice reviews using a verified nonnegative total, reject a review, or request further information. A resolved invoice is re-evaluated by the existing deterministic business-rule engine. Totals above the current **20,000** threshold go to `pending_approval`; totals at or below it go to `completed`.
-- **Formal approval:** Authorized reviewers can approve, reject, or request information from `pending_approval` workflows. Rejections and information requests require a meaningful explanation. Approval comments may be omitted.
-- **Employee information response:** A request produces `needs_information`; the owner can respond, after which the workflow returns to the requesting review stage (`needs_review` or `pending_approval`).
-- **Workflow decision history:** The details panel shows approval decisions, manual-review decisions, and employee information responses in a chronological history.
-- **Original-file access:** Authorized users can open/download the uploaded original via server-side access control rather than exposing internal filesystem paths. The user interface reuses these actions in document and workflow details.
-- **Detailed review context:** Workflow details include the current status, priority, assignment, document metadata, AI summary, structured invoice fields, business-rule reason, and relevant next action.
-
-### Validation and Safety Boundaries
-
-- Employees cannot make manager/admin approval decisions and cannot read unrelated employees' documents or information requests.
-- Managers/admins must pass the centralized access policy and valid workflow-state checks before making decisions.
-- `ApprovalDecisionRequest` validates nonblank explanatory comments for rejection and information requests; the workflow service also protects that business invariant independently of HTTP parsing.
-- Manual-review comments are trimmed and required. Resolved invoice totals must be present, finite, and nonnegative; non-invoice automatic resolution is not supported in this MVP.
-- Workflow decisions use database locking and transactional persistence with related audit events. The Phase 13 reliability pass should still exercise failure recovery and concurrent requests end to end.
-- Document-processing, AI analysis, RAG indexing and Q&A retain their separate ownership restrictions; review-oriented read permissions do not grant broader mutation permissions.
-
-### Additional Workflow API Surface
-
-The existing read and approval endpoints remain available, including `GET /workflows`, `GET /workflows/{workflow_id}`, and `POST /workflows/{workflow_id}/decision`. Phase 12.5 adds or exposes these review-facing operations:
-
-```text
-POST /workflows/{workflow_id}/review
-GET  /workflows/{workflow_id}/information-request
-POST /workflows/{workflow_id}/information-response
-GET  /workflows/{workflow_id}/history
-GET  /documents/{document_id}                 # Authorized review details
-```
-
-The document routes also provide authorized access to original uploaded files. Consult the live FastAPI OpenAPI specification for the exact file viewing/downloading path and response headers; it is intentionally not guessed here.
-
-### New Backend Components
-
-```text
-app/db/models/workflow_review.py
-app/db/models/workflow_information_request.py
-app/repositories/workflow_review_repository.py
-app/repositories/workflow_information_request_repository.py
-app/services/workflow_history_service.py
-app/services/document_file_access_service.py
-app/security/                            # Centralized access policies
-```
-
-Workflow review and information-request tables were introduced through new Alembic revisions, alongside relevant workflow/audit changes. The configured development database was checked with:
-
-```text
-alembic heads   -> 8636cfbbc134 (head)
-alembic current -> 8636cfbbc134 (head)
-```
-
-These commands confirmed one migration head and that the configured database was on that revision at the time of verification. They do not replace schema or functional integration tests.
-
-### Redesigned React Frontend
-
-The frontend was redesigned in five Codex implementation stages, with a separate login-page pass:
-
-1. Shared application shell: blue sidebar, navigation, header and visual tokens.
-2. Manager/Admin dashboard: priority KPI cards for pending approval, manual review, information requests, and combined actions; other document and workflow summaries retained.
-3. Recent Workflows: authorized workflow records displayed in a compact table, without hard-coded sample business records.
-4. Documents and Workflows: consistent tables, status indicators, detail panels, human-decision controls, and workflow navigation/filtering.
-5. Responsive and accessibility polish: desktop/mobile layout, interactive states, and consistent CSS; plus a dedicated split-layout login redesign.
-
-Notable frontend components:
-
-```text
-src/components/dashboard/RecentWorkflows.tsx
-src/components/workflows/WorkflowDetailsPanel.tsx
-src/components/workflows/WorkflowAIAnalysisPanel.tsx
-src/components/workflows/WorkflowHistoryPanel.tsx
-src/components/workflows/WorkflowManualReviewPanel.tsx
-src/components/workflows/WorkflowInformationResponsePanel.tsx
-src/components/workflows/WorkflowDecisionPanel.tsx
-src/components/documents/OriginalDocumentActions.tsx
-src/layouts/AppLayout.tsx
-src/pages/LoginPage.tsx
-src/pages/DashboardPage.tsx
-src/pages/DocumentsPage.tsx
-src/pages/WorkflowsPage.tsx
-src/pages/AuditLogsPage.tsx
-```
-
-The review forms support an **embedded** mode that reuses document details loaded by the parent, preventing duplicate document fetches and duplicated review content. Both approval and manual-review forms require an explicit choice rather than silently preselecting a decision. The Cancel action closes the embedded form without closing Workflow Details.
-
-**Dashboard scope note:** Aggregate workflow counts must not be represented as tasks specifically assigned to the current manager unless the backend query filters by assignment. The existing dashboard summary endpoint has historically been restricted to managers/admins; verify any employee dashboard behavior against the live authorization contract before relying on it.
-
-### Phase 12.5 Verification and Known Boundaries
-
-- An earlier Phase 12.5 regression run of **246 passed, 1 failed, 1 skipped** exposed an outdated rejection test using `comment=None`. That test was corrected. The subsequent Phase 13 baseline recorded **252 passed, 1 skipped**; no failures were reported in that run.
-- A focused approval-schema check accepted valid approvals, rejections and information requests, and rejected empty/whitespace explanations as intended.
-- Ruff lint and formatting checks passed in the Phase 13 verification process. The last reported formatting check found **127 files already formatted**.
-- The frontend regression suite passed **51 tests across 10 files**; Oxlint reported **0 errors and warnings**, and the Vite production build succeeded. Manual cross-role browser verification remains a separate deployment-readiness item.
-- Automated testing covers workflow authorization, manual-review behavior, audit transactions, file access, workflow history, and frontend workflow components. Phase 13 also added information-response history cases and a targeted no-workflow file-access authorization test. Final full-suite re-verification after the last addition remains pending.
-- Current limitations: automated invoice resolution only; other document types can be classified and routed for manual review but do not have equivalent document-specific automated resolution rules. Text-based PDFs are supported, while scanned/image-only PDFs may require future OCR. Storage remains local and AI calls are synchronous where implemented.
-
-### Phase 12.5 Closing Checklist
-
-- [x] Implement manual review, approval, information-request/response, and history features
-- [x] Add secure original-file access and readable manager review context
-- [x] Implement the redesigned app shell, dashboard, login, and core page styles
-- [x] Confirm configured database is on the single Alembic head
-- [x] Record a backend full-suite baseline and the symlink skip reason (252 passed, 1 skipped)
-- [x] Record frontend regression/build/lint/security results (51 passed, build/lint clean, 0 npm vulnerabilities)
-- [ ] Complete manual end-to-end employee, manager, and admin checks before production release
-- [x] Merge Phase 12.5 implementation into `main` (historical PR #1)
-- [ ] Rerun final Phase 13 full-stack checks, then commit, push, and merge `feature/phase-13-testing`
-
-### Next Phases
-
-**Phase 13 — Testing & Reliability:** Testing work completed with regression, role/ownership, secure file-access, history-ordering, concurrency and manual-review rollback checks. Further browser E2E and broader failure-injection work remain future hardening tasks rather than claiming they were performed.
-
-**Phase 14 — Deployment / DevOps:** Production configuration, secrets, database migrations, container setup, frontend/backend hosting, monitoring, backups, and release process.
-
-
----
-
-## Phase 13 — Testing & Reliability Completion Summary (October 2026)
-
-**Status:** Testing and hardening work completed and merged into `main` (historical details and results below). Phase 14 is in progress.
-
-### Scope and Improvements
-
-- Verified backend service, API, integration, and PostgreSQL-backed tests; checked Ruff lint and formatting.
-- Verified frontend Vitest/React Testing Library suites, Oxlint, TypeScript compilation, and Vite production build.
-- Resolved the npm audit findings through compatible lockfile dependency updates. Verified `vite@8.3.5`, `follow-redirects@1.16.1`, and `npm audit` reporting **0 vulnerabilities** at the time of the check.
-- Reviewed centralized document permissions and removed the unused duplicate `_can_access_document()` method from `DocumentFileAccessService`; active authorization remains delegated to `DocumentAccessPolicy`.
-- Expanded workflow-history tests for unanswered information requests, replies linked to approvals or manual reviews, unlinked replies, and chronological ordering of multiple responses.
-- Added a targeted API regression test denying unrelated manager access to a document with no workflow.
-- Reviewed existing original-file API tests for owner access, cross-user denial, anonymous denial, missing files, invalid stored filenames, download/preview behavior, assigned managers, shared-review queue access, and administrator access.
-- Reviewed a real PostgreSQL row-lock concurrency test that verifies only one conflicting manual-review decision persists; reviewed an audit-failure test that verifies rollback of manual-review status, corrected invoice data, and review records.
-
-### Verified Results and Commands
-
-| Area | Last recorded result |
-| --- | --- |
-| Backend full-suite test run | **252 passed, 1 skipped** (before the newest file-access API test was added) |
-| Frontend Vitest | **51 passed** across 10 files |
-| Backend overall coverage | **90%** baseline, with `--cov-branch` enabled (before later test/cleanup changes) |
-| Workflow history service coverage | **96%**, improved from 61% |
-| Backend Ruff lint | Passed |
-| Backend Ruff format | 127 files already formatted |
-| Frontend Oxlint | 0 warnings, 0 errors |
-| TypeScript/Vite build | Passed with Vite 8.3.5 |
-| npm audit | 0 vulnerabilities |
-
-Run final checks from `backend/`:
-
-```powershell
-pytest -q
-ruff check app tests
-ruff format --check app tests
-pytest --cov=app --cov-branch --cov-report=term-missing -q
-```
-
-Run final checks from `frontend/`:
-
-```powershell
-npm test
-npm run lint
-npm run build
-npm audit
-```
-
-### Known Limitations and Release Considerations
-
-- The symlink security test at `tests/test_file_storage_retrieval.py` was skipped because symlink creation was unavailable in the local Windows environment. Its behavior should be verified in a compatible test environment.
-- Backend coverage is a test execution metric, not a guarantee of correctness. Overall coverage may change after removing unused code and adding tests; use the next complete report as the authoritative current value.
-- The documented checks do not establish completed browser-based end-to-end testing for every employee, manager, and administrator journey. Perform deployment smoke tests and cross-role verification in Phase 14.
-- A dedicated approval/audit failure-injection test, broader concurrent operation coverage, fresh-database migration verification, and additional AI/RAG resilience checks can be prioritized later based on release risk.
-- The current original-file storage is local to the backend. Phase 14 must address durable storage, production secrets/configuration, database migrations, backups, observability, and operational recovery before treating DocuFlow as production-ready.
-- `pytest-cov` was installed in the local virtual environment. Confirm it is declared in a development dependency configuration before setting up CI or relying on reproducible coverage checks.
-
-### Phase 13 Closing Checklist
-
-- [x] Backend and frontend automated regression suites exercised
-- [x] Ruff, Oxlint, and production frontend build verified
-- [x] npm dependency security issues resolved and audit clean
-- [x] Workflow history and document authorization test gaps addressed
-- [x] Existing concurrency and manual-review rollback tests reviewed
-- [x] Phase 13 feature branch merged into `main` (PR #2)
-- [x] Generated backend coverage files excluded by root `.gitignore`
-- [x] Subsequent backend full regression verified during Phase 14 work: 262 passed, 1 skipped (before final database guard edit)
-
-**Next: Continue Phase 14 — Deployment / DevOps.**
-
----
-
-## Phase 14 — Deployment / DevOps (In Progress, October 2026)
-
-Phase 14 is split into reviewable workstreams. **The application has not yet been deployed to a production cloud environment.** The current accomplishments are automated CI and a working local Docker backend connected to the existing PostgreSQL database.
-
-### 14.1–14.2 — Deployment Readiness and Continuous Integration
-
-- Reviewed FastAPI runtime settings, SQLAlchemy/Alembic database URLs, local document storage, frontend API configuration, and production deployment gaps.
-- Added `.github/workflows/ci.yml`, triggered for pull requests into `main` and pushes to `main`.
-- **Backend CI:** Python 3.12, PostgreSQL 16 with pgvector, dependency installation, Ruff lint/format, and pytest. A dummy test-only OpenAI key supports mocked API tests; real credentials are never required for CI.
-- **Frontend CI:** Node.js 22, `npm ci`, Oxlint, Vitest, and TypeScript/Vite production build. `VITE_API_BASE_URL` is configured for the CI job.
-- Both CI jobs passed in PR #5, merged into `main`. Requiring passing checks before merging is a separate branch-protection setting and still needs verification/configuration.
-
-### 14.3 — Production Settings and Local Backend Docker
-
-The work is under development on `feature/phase-14-production-config`; do not treat it as merged until its pull request and CI finish.
-
-**Configuration**
-
-- `backend/app/core/config.py` validates `APP_ENV` (`development`, `testing`, `production`) and rejects debug mode in production.
-- `CORS_ALLOWED_ORIGINS` is a JSON array of frontend origins. Production configuration requires explicit HTTPS origins and rejects wildcard values.
-- Production checks a non-placeholder JWT secret of at least 32 characters. Secrets must be supplied at runtime, not committed.
-- `TEST_DATABASE_URL` is optional for application startup but required by the database-backed test suite.
-- `backend/app/main.py` passes `settings.cors_allowed_origins` into FastAPI's existing CORS middleware.
-- Tests in `backend/tests/test_production_config.py` verified nine configuration scenarios.
-- The integration-test setup rejects a missing test URL and has a same-database guard under implementation. The URL comparison is defense-in-depth, not a substitute for isolated test infrastructure and restricted credentials.
-
-**Docker files**
-
-- `backend/Dockerfile` builds from `python:3.12-slim`, installs dependencies from `requirements.txt`, copies FastAPI and Alembic files, uses a non-root `appuser`, and runs Uvicorn on port 8000 without `--reload`.
-- `backend/.dockerignore` excludes `.env` files, uploaded documents, local virtual environments, caches, tests, and other development artifacts from the `backend/` build context.
-- Root `.gitignore` excludes `.env` and `.env.*` while retaining `.env.example`.
-
-**Local Docker verification** (from repository root, PowerShell)
-
-Start the existing database using the project's Compose configuration:
-
-```powershell
-docker compose up -d
-```
-
-Build the backend image:
-
-```powershell
-docker build -t docuflow-backend:dev -f backend/Dockerfile backend
-```
-
-Create a local Docker environment file from your existing backend `.env` (never commit either file):
-
-```powershell
-Copy-Item backend/.env backend/.env.docker.local
-```
-
-In `backend/.env.docker.local`, set `APP_ENV=development`, `APP_DEBUG=false`, and a valid `DATABASE_URL` pointing to `host.docker.internal:5434` when using Docker Desktop and the locally published PostgreSQL port. Keep the actual local username/password in that **ignored** file, not in documentation or shell arguments. Maintain a **separate** `docuflow_test` database if configuring `TEST_DATABASE_URL`; do not point it to `docuflow_db`.
-
-Run the backend container:
-
-```powershell
-docker run -d `
-  --name docuflow-backend-local `
-  -p 8000:8000 `
-  --env-file backend/.env.docker.local `
-  docuflow-backend:dev
-```
-
-Inspect startup and test application health:
-
-```powershell
-docker ps -a --filter "name=docuflow-backend-local"
-docker logs --tail 30 docuflow-backend-local
-Invoke-RestMethod http://localhost:8000/health
-```
-
-Verify SQLAlchemy can actually query the database:
-
-```powershell
-docker exec docuflow-backend-local python -c "from sqlalchemy import text; from app.db.database import engine; c = engine.connect(); print('PostgreSQL connection:', c.execute(text('SELECT 1')).scalar()); c.close()"
-```
-
-Check the schema revision without applying migrations:
-
-```powershell
-docker exec docuflow-backend-local alembic current
-```
-
-If recreating the local backend container, remove **only** that container with `docker rm -f docuflow-backend-local`, then rerun `docker run`. Do not remove the PostgreSQL container or its persistent volume.
-
-**Observed local results**
-
-| Verification | Observed result |
-| --- | --- |
-| Docker image build | Successful (`docuflow-backend:dev`, ~404 MB at verification) |
-| Container process | Non-root `appuser`, Uvicorn on `0.0.0.0:8000` |
-| `GET /health` | Healthy response |
-| SQLAlchemy `SELECT 1` | `PostgreSQL connection: 1` |
-| PostgreSQL pgvector extension | `0.8.2` |
-| Alembic current / only head | `8636cfbbc134 (head)` |
-| Backend Ruff lint | Passed |
-| Backend Ruff format | 128 files formatted |
-| Latest recorded local pytest run | 262 passed, 1 skipped, before newest test-database guard edit |
-
-**Production limitations / pending deployment tasks**
-
-- The filesystem storage implementation still writes to local `uploads/`; container-local uploads are not durable across replacement or scaling. Production requires persistent private document storage and authorization-preserving file access.
-- Managed PostgreSQL configuration, TLS, migration execution strategy, backups, and restoration testing have not been completed for production.
-- The frontend and backend have not yet been deployed to Vercel/Render, and automated continuous deployment has not been implemented.
-- Restrict CORS to the actual deployed frontend origin; check secrets, production debug mode, HTTPS, and account permissions before release.
-- Run post-deployment smoke tests and cross-role employee/manager/admin flows; implement monitoring and operational recovery.
-- The initial Docker image includes development/test dependencies from `requirements.txt`; plan a production dependency split and pin the currently unpinned Python `pgvector` package before release.
-
-### Phase 14.3 Closing Checklist
-
-- [x] Validate environment-specific configuration and add focused tests
-- [x] Connect FastAPI CORS to validated settings
-- [x] Build a backend Docker image and verify the non-root runtime
-- [x] Verify local API health, PostgreSQL SQL query, pgvector extension, and Alembic head
-- [x] Protect `.env.docker.local` with `.gitignore`
-- [ ] Verify the latest database safety guard and rerun full regression suite
-- [ ] Review final README and staged Git diff for secrets or unintended files
-- [ ] Open production-configuration pull request, confirm both CI jobs pass, and merge to `main`
-- [ ] Continue to hosted database, persistent storage, cloud deployment, and monitoring in subsequent Phase 14 workstreams
-
-
-## Phase 14.4 — Supabase Cloud Storage Integration
-
-### Overview
-
-DocuFlow AI supports two document storage providers:
-
-- **Local storage:** Files are stored on the backend filesystem for local development.
-- **Supabase Storage:** Files are stored in a private cloud storage bucket.
-
-The storage provider is configured using `STORAGE_PROVIDER`.
-
-New document records persist their storage provider so that file processing, preview, and download operations can use the correct storage backend.
-
-### Configuration
-
-The following environment variables configure document storage:
-
-```dotenv
-STORAGE_PROVIDER=local
-
-# Required when STORAGE_PROVIDER=supabase
-SUPABASE_URL=
-SUPABASE_SECRET_KEY=
-SUPABASE_STORAGE_BUCKET=docuflow-documents
-```
-
-For cloud deployment, set `STORAGE_PROVIDER=supabase` and configure the Supabase credentials using the hosting platform's secret management or environment-variable settings.
-
-Never commit actual Supabase credentials to Git or expose the secret key in frontend code.
-
-### Storage Architecture
-
-The backend uses a storage abstraction to separate document operations from storage-provider implementations.
-
-Key modules:
-
-- `backend/app/storage/base.py` — storage interface
-- `backend/app/storage/local_storage.py` — local filesystem implementation
-- `backend/app/storage/supabase_storage.py` — Supabase Storage implementation
-- `backend/app/storage/factory.py` — storage-provider resolution
-
-Application services remain responsible for document processing and authorization.
-
-### Database Migration
-
-Migration `50266c3b2d03` adds `storage_provider` to the `documents` table.
-
-The provider is saved with each document and used when resolving its storage backend.
-
-Apply migrations to a new deployment database using:
-
-```bash
-alembic upgrade head
-```
-
-Run migrations as a controlled deployment step, not automatically in every application instance.
-
-### Security and Error Handling
-
-- Cloud documents use a private Supabase Storage bucket.
-- Document access authorization remains enforced by the application.
-- Storage failures are translated into controlled application errors.
-- AI provider and document-cleanup log messages avoid logging raw provider exceptions in the reviewed handlers.
-- Simulated sensitive values are checked in the relevant regression tests.
-
-Do not treat these measures as a guarantee that all infrastructure logs or monitoring integrations are free from sensitive information.
-
-### Verified Local Results — November 3, 2026
-
-- Backend: 334 tests passed, 3 skipped.
-- Frontend: 51 tests passed across 10 test files.
-- Frontend TypeScript/Vite production build: passed.
-- Backend Docker image: built successfully.
-- Supabase SDK in Docker: 2.33.0.
-- WebSockets in Docker: 15.0.1.
-- Docker dependency consistency: passed.
-- FastAPI container health: passed.
-- PostgreSQL connectivity from the backend container: passed.
-- Development database Alembic revision: `50266c3b2d03` (head).
-- Live Supabase Storage and document API integration tests were exercised in earlier Phase 14.4 verification.
-
-### Known Limitations and Production Requirements
-
-- Local files are not automatically migrated to Supabase when the default storage provider changes.
-- Container-local storage is not durable without persistent volumes.
-- Failed cloud-object cleanup may require manual reconciliation.
-- Real provider exceptions can retain sensitive information in exception chains or external diagnostic systems.
-- Production deployment requires secure secrets, HTTPS, private storage permissions, managed database configuration, backups, and monitoring.
-- The complete application has not yet been deployed and verified in a production cloud environment.
+**Current scope:** Working, cloud-hosted portfolio MVP with verified CI/CD release path and documented engineering boundaries. The production document/Q&A path has been demonstrated. Phase 15 Admin User Management is planned, while full enterprise production-hardening and all-role verification remain open engineering tasks.
