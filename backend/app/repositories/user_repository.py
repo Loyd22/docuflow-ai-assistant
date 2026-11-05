@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.enums import UserRole
@@ -24,6 +24,25 @@ class UserRepository:
         statement = select(User).where(User.email == email)
 
         return self.db_session.scalar(statement)
+
+    def list_users(
+        self,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[User]:
+        """Return a paginated list of users."""
+
+        statement = select(User).order_by(User.id.asc()).limit(limit).offset(offset)
+
+        return list(self.db_session.scalars(statement).all())
+
+    def count_users(self) -> int:
+        """Count all registered users."""
+
+        statement = select(func.count()).select_from(User)
+
+        return self.db_session.scalar(statement) or 0
 
     def create(
         self,
