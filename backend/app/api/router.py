@@ -7,6 +7,7 @@ Every feature router will eventually be registered here.
 from fastapi import APIRouter
 
 from app.api.routes import (
+    admin_user_routes,
     audit_log_routes,
     auth_routes,
     dashboard_routes,
@@ -24,3 +25,4 @@ api_router.include_router(document_routes.router)
 api_router.include_router(workflow_routes.router)
 api_router.include_router(audit_log_routes.router)
 api_router.include_router(dashboard_routes.router)
+api_router.include_router(admin_user_routes.router)
