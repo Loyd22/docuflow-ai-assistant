@@ -1,3 +1,4 @@
+import LoadingIndicator from "../ui/LoadingIndicator";
 
 import { useEffect, useState } from "react";
 import axios from "axios";
@@ -212,9 +213,7 @@ export default function WorkflowDetailsPanel({
         <h4>Document Information</h4>
 
         {isDocumentLoading && (
-          <p role="status">
-            Loading document information...
-          </p>
+          <LoadingIndicator compact label="Loading document information..." />
         )}
 
         {documentError && (

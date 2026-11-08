@@ -1,3 +1,4 @@
+import LoadingIndicator from "../ui/LoadingIndicator";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getRecentWorkflows, type RecentWorkflowRecord } from "../../api/recentWorkflowsApi";
@@ -33,7 +34,7 @@ export default function RecentWorkflows() {
         </div>
         <Link className="dashboard-text-link" to="/workflows">View All →</Link>
       </div>
-      {isLoading ? <p className="recent-workflows-message" role="status">Loading recent workflows...</p>
+      {isLoading ? <LoadingIndicator compact label="Loading recent workflows..." />
         : error ? <p className="recent-workflows-message" role="alert">Unable to load recent workflows. Open View All to try the workflow list.</p>
         : records.length === 0 ? <p className="recent-workflows-message">No workflows yet. Workflows appear after documents are analyzed.</p>
         : <>

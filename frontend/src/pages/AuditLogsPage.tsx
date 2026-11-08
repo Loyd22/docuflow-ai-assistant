@@ -1,3 +1,4 @@
+import LoadingIndicator from "../components/ui/LoadingIndicator";
 import {
   useEffect,
   useState,
@@ -75,7 +76,7 @@ function AuditLogsPage() {
       )}
 
       {isLoading ? (
-        <p className="workspace-loading" role="status">Loading audit logs...</p>
+        <LoadingIndicator label="Loading audit logs..." />
       ) : errorMessage ? null : auditLogs.length === 0 ? (
         <div className="empty-audit-logs">
           <h3>No audit logs yet</h3>

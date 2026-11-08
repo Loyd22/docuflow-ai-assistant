@@ -1,3 +1,4 @@
+import { Spinner } from "../ui/LoadingIndicator";
 import {
   type FormEvent,
   useState,
@@ -35,6 +36,8 @@ function DocumentQuestionPanel({
     event: FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
+
+    if (isSubmitting) return;
 
     const trimmedQuestion = question.trim();
 
@@ -119,15 +122,21 @@ function DocumentQuestionPanel({
 
         <button
           type="submit"
+          aria-busy={isSubmitting}
           disabled={
             isSubmitting || !question.trim()
           }
         >
+          {isSubmitting && <Spinner />}
           {isSubmitting
             ? "Generating answer..."
             : "Ask"}
         </button>
       </form>
+
+      <p className="question-request-status" role="status">
+        {isSubmitting ? "Searching document sources and generating an answer..." : response ? "Answer ready." : ""}
+      </p>
 
       {errorMessage && (
         <p

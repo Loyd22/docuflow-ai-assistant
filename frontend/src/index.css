@@ -93,3 +93,144 @@ p {
   outline: 2px solid var(--color-primary);
   outline-offset: 3px;
 }
+
+
+
+/* ---------------------------------------
+   DOCUFLOW UI MOTION
+--------------------------------------- */
+
+:root {
+  --motion-fast: 150ms;
+  --motion-normal: 220ms;
+  --motion-easing: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-feedback: docuflow-feedback-enter var(--motion-normal) var(--motion-easing) both;
+  --motion-page: docuflow-page-enter var(--motion-normal) var(--motion-easing) both;
+}
+
+/* Animate the incoming route content. */
+.page-transition { min-width: 0; }
+/* Animate the actual incoming route, never replace the Outlet to restart motion. */
+.page-transition > * { animation: var(--motion-page); }
+
+@keyframes docuflow-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Smooth button and link interactions. */
+button {
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
+}
+
+button:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+/* Interactive sidebar links. */
+.sidebar-nav .nav-link {
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease;
+}
+
+/* Reusable loading spinner. */
+.docuflow-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+
+  animation: docuflow-spin 750ms linear infinite;
+}
+
+@keyframes docuflow-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Loading label with spinner. */
+.docuflow-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Gently introduce feedback messages. */
+:is(.admin-message, .workflow-message, .audit-error, .dashboard-state-error,
+  .message, .question-error, .question-response, .question-panel, .upload-feedback,
+  .admin-role-editor, .admin-confirmation, .workflow-decision-panel,
+  .workflow-details-panel, .workflow-history-panel, .workflow-decision-error,
+  .workflow-error-message, .workflow-document-review, .workflow-history-list,
+  .document-table-wrapper, .workflow-table-wrapper, .audit-table-wrapper,
+  .admin-users-card, .recent-workflows-scroll, .dashboard-section) {
+  animation: var(--motion-feedback);
+}
+
+@keyframes docuflow-feedback-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-feedback: none; --motion-page: none; }
+  .page-transition,
+  .docuflow-spinner,
+  .admin-message,
+  .workflow-message {
+    animation: none;
+  }
+
+  button,
+  .sidebar-nav .nav-link {
+    transition: none;
+  }
+
+  button:not(:disabled):active {
+    transform: none;
+  }
+}
+
+/* Interactive surfaces change color/shadow without moving surrounding content. */
+.page-content a, input, select, textarea, .upload-form input::file-selector-button {
+  transition: background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease, color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease, transform var(--motion-fast) ease;
+}
+.page-content :is(.summary-card-link, .dashboard-text-link, .recent-workflows-open):hover { color: var(--color-primary-deep); }
+.page-content :is(.dashboard-primary-link, .dashboard-secondary-link, .recent-workflows-open):hover {
+  box-shadow: var(--shadow-soft);
+}
+.page-content a:active { transform: translateY(1px); }
+:is(input, select, textarea):not(:disabled):hover { border-color: var(--color-primary); }
+button:disabled { cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  .page-content a, input, select, textarea, .upload-form input::file-selector-button { transition: none; }
+  .page-content a:active { transform: none; }
+}

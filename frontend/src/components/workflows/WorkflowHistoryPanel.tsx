@@ -1,3 +1,4 @@
+import LoadingIndicator from "../ui/LoadingIndicator";
 
 import { useEffect, useState } from "react";
 import axios from "axios";
@@ -114,7 +115,7 @@ export default function WorkflowHistoryPanel({
       </div>
 
       {isLoading && (
-        <p role="status">Loading decision history...</p>
+        <LoadingIndicator compact label="Loading decision history..." />
       )}
 
       {errorMessage && (
