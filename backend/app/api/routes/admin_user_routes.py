@@ -1,8 +1,6 @@
-"""Admin-only endpoints for managing user accounts."""
-
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import require_roles
@@ -10,8 +8,17 @@ from app.db.enums import UserRole
 from app.db.models.user import User
 from app.db.session import get_db_session
 from app.repositories.user_repository import UserRepository
-from app.schemas.admin_user_schema import UserListResponse
-from app.services.admin_user_service import AdminUserService
+from app.schemas.admin_user_schema import (
+    UserListResponse,
+    UserRoleUpdateRequest,
+)
+from app.schemas.auth_schema import UserResponse
+from app.services.admin_user_service import (
+    AdminUserService,
+    LastActiveAdminError,
+    RoleChangeForbiddenError,
+    UserNotFoundError,
+)
 
 router = APIRouter(
     prefix="/admin/users",
@@ -44,3 +51,50 @@ def list_users(
         limit=limit,
         offset=offset,
     )
+
+
+@router.patch(
+    "/{user_id}/role",
+    response_model=UserResponse,
+)
+def change_user_role(
+    user_id: Annotated[int, Path(ge=1)],
+    request: UserRoleUpdateRequest,
+    db_session: Annotated[
+        Session,
+        Depends(get_db_session),
+    ],
+    current_admin: Annotated[
+        User,
+        Depends(require_roles(UserRole.ADMIN)),
+    ],
+) -> User:
+    """Change a user role. Admin access only."""
+
+    user_repository = UserRepository(db_session)
+    admin_user_service = AdminUserService(user_repository)
+
+    try:
+        return admin_user_service.change_role(
+            actor_id=current_admin.id,
+            target_user_id=user_id,
+            new_role=request.role,
+        )
+
+    except UserNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except RoleChangeForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+
+    except LastActiveAdminError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
