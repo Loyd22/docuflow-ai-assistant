@@ -1,6 +1,6 @@
 """Schemas for administrative user management."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool
 
 from app.db.enums import UserRole
 from app.schemas.auth_schema import UserResponse
@@ -19,3 +19,9 @@ class UserRoleUpdateRequest(BaseModel):
     """Data required to change an existing user's role."""
 
     role: UserRole
+
+
+class UserStatusUpdateRequest(BaseModel):
+    """Data required to activate or deactivate a user account."""
+
+    is_active: StrictBool

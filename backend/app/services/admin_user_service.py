@@ -131,3 +131,94 @@ class AdminUserService:
         except Exception:
             db_session.rollback()
             raise
+
+    def change_status(
+        self,
+        *,
+        actor_id: int,
+        target_user_id: int,
+        is_active: bool,
+    ) -> User:
+        """Change account status and record the event atomically."""
+
+        db_session: Session = self.user_repository.db_session
+
+        try:
+            # Serialize operations that affect Admin membership.
+            self.user_repository.lock_admin_membership()
+
+            # Lock and validate the acting administrator.
+            actor = self.user_repository.get_by_id_for_update(actor_id)
+
+            if actor is None or not actor.is_active or actor.role != UserRole.ADMIN:
+                raise StatusChangeForbiddenError(
+                    "Only active administrators may change account status."
+                )
+
+            # Prevent administrators from deactivating themselves.
+            if actor_id == target_user_id and not is_active:
+                raise StatusChangeForbiddenError(
+                    "Administrators cannot deactivate their own account."
+                )
+
+            # Lock the account being modified.
+            target_user = self.user_repository.get_by_id_for_update(target_user_id)
+
+            if target_user is None:
+                raise UserNotFoundError("User account was not found.")
+
+            previous_is_active = target_user.is_active
+
+            # Do nothing if the requested status is unchanged.
+            if previous_is_active == is_active:
+                db_session.commit()
+                return target_user
+
+            # Protect the last active administrator.
+            if (
+                target_user.role == UserRole.ADMIN
+                and previous_is_active
+                and not is_active
+            ):
+                active_admin_count = self.user_repository.count_active_admins()
+
+                if active_admin_count <= 1:
+                    raise LastActiveAdminError(
+                        "Cannot deactivate the last active administrator."
+                    )
+
+            # Stage the account-status update.
+            target_user.is_active = is_active
+
+            # Record the actor, target, and state transition.
+            audit_log_service = AuditLogService(db_session)
+
+            audit_log_service.record_event(
+                user_id=actor.id,
+                action=AuditAction.USER_STATUS_CHANGED,
+                entity_type=AuditEntityType.USER,
+                entity_id=target_user.id,
+                event_metadata={
+                    "previous_is_active": previous_is_active,
+                    "new_is_active": is_active,
+                },
+                commit=False,
+            )
+
+            # Apply pending SQL before the final commit.
+            db_session.flush()
+            db_session.refresh(target_user)
+
+            # Persist the status update and audit event together.
+            db_session.commit()
+
+            return target_user
+
+        except Exception:
+            # Cancel the transaction if any operation fails.
+            db_session.rollback()
+            raise
+
+
+class StatusChangeForbiddenError(Exception):
+    """Raised when an actor cannot change an account's active status."""

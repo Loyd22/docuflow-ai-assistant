@@ -88,6 +88,7 @@ class AuditAction(StrEnum):
 
     # Record changes to user account roles.
     USER_ROLE_CHANGED = "user_role_changed"
+    USER_STATUS_CHANGED = "user_status_changed"
 
     DOCUMENT_UPLOADED = "document_uploaded"
     DOCUMENT_TEXT_EXTRACTED = "document_text_extracted"
