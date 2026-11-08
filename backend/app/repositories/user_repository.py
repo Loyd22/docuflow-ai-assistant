@@ -1,8 +1,11 @@
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.db.enums import UserRole
 from app.db.models.user import User
+
+# Shared lock identifier for administrative membership changes.
+ADMIN_MEMBERSHIP_LOCK_KEY = 15002001
 
 
 class UserRepository:
@@ -66,3 +69,32 @@ class UserRepository:
         self.db_session.refresh(user)
 
         return user
+
+    def lock_admin_membership(self) -> None:
+        """Serialize changes that affect Admin membership."""
+
+        self.db_session.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": ADMIN_MEMBERSHIP_LOCK_KEY},
+        )
+
+    def get_by_id_for_update(self, user_id: int) -> User | None:
+        """Lock a user record until the transaction ends."""
+
+        statement = select(User).where(User.id == user_id).with_for_update()
+
+        return self.db_session.scalar(statement)
+
+    def count_active_admins(self) -> int:
+        """Count currently active Admin accounts."""
+
+        statement = (
+            select(func.count())
+            .select_from(User)
+            .where(
+                User.role == UserRole.ADMIN,
+                User.is_active.is_(True),
+            )
+        )
+
+        return self.db_session.scalar(statement) or 0
