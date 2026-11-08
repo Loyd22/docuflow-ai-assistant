@@ -21,35 +21,41 @@ It is implemented as a **modular monolith**: a React frontend communicates with 
 
 **Free-tier note:** Render Free instances may spin down during inactivity, causing slow first requests. OpenAI usage is metered separately; free hosting does not make model calls free. The deployment is a portfolio demonstration, not a fully hardened enterprise service.
 
-## Project Status — November 5, 2026
+## Project Status — November 8, 2026
 
 - **Phases 1–13:** Core application, frontend, workflow completion, and reliability work implemented; Phase 13 merged into `main`.
 - **Phase 14.1–14.3:** GitHub Actions CI, validated production configuration, and Docker backend completed.
 - **Phase 14.4:** Configurable local/Supabase Storage adapter implemented and merged; private cloud object storage integrated.
 - **Phase 14.5:** Supabase PostgreSQL schema migrated; FastAPI deployed to Render; React/Vite deployed to Vercel; production CORS and SPA rewrite configured; controlled user provisioning demonstrated.
-- **Phase 14.6 — CI/CD:** Protected `main` branch with required backend/frontend GitHub Actions checks; verified Vercel production deployment from PR #12 and Render automatic deployment from PR #13. Render reports commit `2f63117` live, and application/database health checks passed.
-- **Phase 15 — Next planned phase:** Admin User Management & RBAC Refinement. Not implemented yet; proposed scope and security boundaries are outlined below.
-- **Verified cloud path:** Production sign-in; authenticated PDF upload; text extraction; AI invoice classification/analysis; document indexing; question answering with a retrieved source chunk.
-- **Not yet fully verified in the deployed environment:** Complete manager/admin approval and information-request journeys, broader concurrency/failure recovery, backup restoration, load tests, and security/operational controls described below.
+- **Phase 14.6 — CI/CD:** Protected `main` branch with required backend/frontend GitHub Actions checks; verified PR-to-production deployment with Vercel and Render.
+- **Phase 15.1 — Admin User Listing:** Admin-only `GET /admin/users` with validated pagination and safe user response fields; merged in PR #15.
+- **Phase 15.2 — Admin Role Management:** Admin-only `PATCH /admin/users/{user_id}/role`, role validation, self-change restriction, last-active-admin safeguards, atomic audit logging, PostgreSQL advisory locking, and API/concurrency tests. Merged in PR #16 and deployed to Render at commit `02b4075` on November 8, 2026.
+- **Phase 15.3 — Planned:** Admin account activation/deactivation, including last-active-admin protection and auditability. Dedicated Admin UI remains planned.
+- **Production:** Supabase Alembic revision `27ba877ff4bc` applied; Render deployment live; `/health` and `/health/database` healthy. A successful production role-change operation has not yet been demonstrated.
+- **Verified cloud document path:** Production sign-in; authenticated PDF upload; text extraction; AI invoice classification/analysis; document indexing; question answering with a retrieved source chunk.
+- **Not yet fully verified in the deployed environment:** Complete manager/admin approval and information-request journeys, role-change functional smoke test, broader concurrency/failure recovery, backup restoration, load tests, and security/operational controls described below.
 
 ### Latest recorded checks
 
 | Check | Result | Scope |
 | --- | --- | --- |
-| Backend pytest | **335 passed, 3 skipped**, 27.68 seconds | Latest user-reported local full suite, November 2026 |
-| GitHub Actions | Backend and frontend CI **passed** | Including protected PR #12 and PR #13 (November 5, 2026) |
-| Frontend Vitest | **51 passed across 10 files** | Last reported frontend run; not necessarily rerun after every deployment configuration edit |
-| Backend Ruff | Passed during deployment-preparation checks | Latest local verification |
+| Backend pytest | **11 Admin Role Management API tests passed**; **1 concurrency test passed across four runs** | Focused local checks; full post-Phase-15 regression count not supplied |
+| GitHub Actions | Backend and frontend CI **passed** | PR #16, November 8, 2026 |
+| Frontend Vitest | **51 passed across 10 files** | PR #16 CI report |
+| Backend Ruff | Role-management test lint and format checks passed | Focused local verification; CI backend quality job passed |
 | Production health | `/health` → healthy | Render |
 | Database health | `/health/database` → connected | Render to Supabase PostgreSQL |
 | Production public registration | `POST /auth/register` → **403** | `PUBLIC_REGISTRATION_ENABLED=false` |
 | Production RAG demonstration | Indexed invoice, generated an answer, returned **Chunk 0** source | One manually tested synthetic invoice, not a broad evaluation |
+| Phase 15.2 release | PR #16 merged; Render commit `02b4075` live; Supabase revision `27ba877ff4bc` | Health checks passed; production role-change request not yet exercised |
 
 Earlier measurements of **90% backend coverage** and **96% workflow-history service coverage** are historical Phase 13 baselines, not freshly remeasured current coverage.
 
 ## Features
 
 - **Authentication and roles:** JWT login; Argon2 password hashes; `employee`, `manager`, and `admin` authorization; protected frontend routes; configurable public registration.
+- **Admin user directory:** Admin-only paginated user listing with role and active-status fields; no password hashes in responses.
+- **Admin role management:** Admin-only role updates with typed validation, protection against self-role changes and last-active-admin loss, transactionally consistent audit records, and PostgreSQL locking for cooperating concurrent role changes.
 - **Secure document intake:** Authenticated PDF, DOCX, and TXT upload; 10 MB maximum; generated internal storage keys; metadata in PostgreSQL; private storage adapter for local files or Supabase Storage.
 - **Text extraction:** Extracts machine-readable text from TXT, DOCX, and text-based PDF files; maintains processing states and controlled errors. Scanned/image-only PDFs are not currently OCR-enabled.
 - **AI classification:** OpenAI Responses API classification with validated Pydantic output. Supported types include invoice, contract, SOP, HR form, purchase request, policy, business report, support ticket, digital form, memo, and `unknown`.
@@ -77,27 +83,47 @@ Earlier measurements of **90% backend coverage** and **96% workflow-history serv
 ## Architecture
 
 ```text
+
 Browser (React + Vite on Vercel)
+
            |
+
            | HTTPS / JSON / JWT
+
            v
+
 FastAPI modular monolith (Docker on Render)
+
   |-- API routes / auth dependencies / validation
+
   |-- Services / workflow orchestration
+
   |-- Processing / PDF, DOCX, TXT extraction
+
   |-- AI / classification, invoice extraction, Q&A
+
   |-- Business rules / deterministic decisions
+
   |-- RAG / chunking, embeddings, retrieval
+
   |-- Repositories / SQLAlchemy
+
   |-- Storage interface / provider selection
+
            |                       |
+
            v                       v
+
 Supabase PostgreSQL + pgvector   Private Supabase Storage
+
            ^
+
            |
+
       Audit and workflows
 
 External model calls: OpenAI API (Responses + embeddings)
+
 ```
 
 **Separation of concerns**
@@ -125,21 +151,35 @@ External model calls: OpenAI API (Responses + embeddings)
 ### Typical document lifecycle
 
 ```text
+
 Sign in
+
   -> Upload PDF/DOCX/TXT
+
   -> Save private object and document metadata
+
   -> Extract text
+
   -> Classify (OpenAI) + extract supported fields
+
   -> Validate Pydantic output
+
   -> Apply deterministic business rules
+
   -> Create/update workflow
+
   -> Human review / approval where required
+
   -> Audit relevant actions
 
 Optional document Q&A:
+
   extracted text -> chunks -> embeddings -> pgvector
+
   question -> embedding -> document-scoped retrieval
+
            -> context + LLM -> answer + cited source chunks
+
 ```
 
 **Distinct state machines:** A document can have status `analyzed` while its separate workflow remains `pending_approval`. AI classification is not itself an approval decision.
@@ -167,17 +207,21 @@ Main application tables:
 
 `documents.extracted_data` and `documents.business_rule_result` use JSONB. `document_chunks.embedding` is a 1536-dimensional pgvector column. `documents.storage_provider` records whether a file uses local or Supabase storage so existing and new objects can be resolved correctly.
 
-**Current recorded Alembic head:** `50266c3b2d03`, which introduces persistent document storage-provider metadata. This revision was applied to the Supabase cloud database and verified before deployment.
+**Current recorded Alembic head:** `27ba877ff4bc`. Revision `50266c3b2d03` introduced document storage-provider metadata; revision `27ba877ff4bc` adds `user_role_changed` to PostgreSQL `audit_action`. The latest revision was applied and confirmed on the Supabase production database before PR #16 was merged.
 
-Schema changes are managed with Alembic, not application-startup `Base.metadata.create_all()` calls. Create/apply migrations deliberately, review them, and verify the target environment:
+Schema changes are managed with Alembic, not application-startup `Base.metadata.create_all()` calls. Create/apply migrations deliberately, review them, and verify the target environment (the commands below modify **the database selected by `DATABASE_URL`**):
 
 ```bash
+
 cd backend
+
 alembic current
+
 alembic upgrade head
+
 ```
 
-**Production warning:** Use the intended production database connection only for controlled migrations; never run tests or migration commands against a production database unintentionally. Automated integration tests use a separate disposable test database. Automatic application deployment does not mean migrations are safely automated; plan migration execution and rollback explicitly.
+**Production warning:** Use the intended production database connection only for controlled migrations; never run tests or migration commands against a production database unintentionally. Automated integration tests use a separate disposable test database. Automatic application deployment does not mean migrations are safely automated; Render Free does not have a configured pre-deploy migration command in this project. The Phase 15.2 Supabase migration was run manually ahead of merging PR #16. Plan migration execution, verified backups, and rollback explicitly. Removing a PostgreSQL enum value requires separate review, rather than assuming `alembic downgrade` can undo it.
 
 ## Key API Endpoints
 
@@ -188,6 +232,8 @@ alembic upgrade head
 | POST | `/auth/register` | Registration, **disabled in deployed production** |
 | POST | `/auth/login` | Authenticate and issue JWT |
 | GET | `/auth/me` | Current authenticated user |
+| GET | `/admin/users` | Admin-only user directory with `limit` and `offset` pagination |
+| PATCH | `/admin/users/{user_id}/role` | Admin-only validated user role change and audit event |
 | POST | `/documents` | Authenticated upload |
 | GET | `/documents` | List permitted documents |
 | GET | `/documents/{document_id}` | Authorized document details |
@@ -221,7 +267,9 @@ Original-file view/download endpoints also exist; consult the running OpenAPI do
 From the repository root, start local PostgreSQL:
 
 ```bash
+
 docker compose up -d
+
 ```
 
 The local database is published on port `5434` (container port `5432`).
@@ -229,10 +277,15 @@ The local database is published on port `5434` (container port `5432`).
 ### Backend
 
 ```powershell
+
 cd backend
+
 python -m venv .venv
+
 .\.venv\Scripts\Activate.ps1
+
 pip install -r requirements.txt
+
 ```
 
 Create `backend/.env` from `backend/.env.example`. Keep it outside version control. For local development, use separate application and test database URLs.
@@ -240,34 +293,55 @@ Create `backend/.env` from `backend/.env.example`. Keep it outside version contr
 Example configuration **with placeholders only**:
 
 ```dotenv
+
 APP_NAME=DocuFlow AI
+
 APP_ENV=development
+
 APP_DEBUG=true
+
 PUBLIC_REGISTRATION_ENABLED=true
+
 CORS_ALLOWED_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
+
 DATABASE_URL=postgresql+psycopg://LOCAL_USER:LOCAL_PASSWORD@localhost:5434/docuflow_db
+
 TEST_DATABASE_URL=postgresql+psycopg://LOCAL_USER:LOCAL_PASSWORD@localhost:5434/docuflow_test
+
 JWT_SECRET_KEY=REPLACE_WITH_RANDOM_SECRET_AT_LEAST_32_CHARS
+
 JWT_ALGORITHM=HS256
+
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+
 STORAGE_PROVIDER=local
+
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
+
 OPENAI_MODEL=YOUR_SUPPORTED_OPENAI_MODEL
+
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+
 OPENAI_EMBEDDING_DIMENSIONS=1536
+
 ```
 
 Generate a JWT secret locally, then copy it **only** into your private environment configuration:
 
 ```bash
+
 python -c "import secrets; print(secrets.token_hex(32))"
+
 ```
 
 Run local migrations and start FastAPI:
 
 ```bash
+
 alembic upgrade head
+
 uvicorn app.main:app --reload
+
 ```
 
 Swagger: `http://127.0.0.1:8000/docs`.
@@ -277,20 +351,27 @@ Swagger: `http://127.0.0.1:8000/docs`.
 From another terminal:
 
 ```powershell
+
 cd frontend
+
 npm ci
+
 ```
 
 Create `frontend/.env.local` with:
 
 ```dotenv
+
 VITE_API_BASE_URL=http://127.0.0.1:8000
+
 ```
 
 Then:
 
 ```bash
+
 npm run dev
+
 ```
 
 Vite normally serves the local app at `http://localhost:5173`.
@@ -299,10 +380,14 @@ Vite normally serves the local app at `http://localhost:5173`.
 
 ### Production topology
 
-1. **Supabase:** Managed PostgreSQL, pgvector extension, and a **private** `docuflow-documents` Storage bucket. Schema migrated to `50266c3b2d03`. Database application connections use the Supabase-provided connection configuration; never invent a pooler hostname.
+1. **Supabase:** Managed PostgreSQL, pgvector extension, and a **private** `docuflow-documents` Storage bucket. Schema migrated to `27ba877ff4bc` (role-change audit enum; November 8, 2026). Database application connections use the Supabase-provided connection configuration; never invent a pooler hostname.
+
 2. **Render:** Free Docker Web Service, deployed from the `backend` repository directory. `backend/Dockerfile` runs FastAPI/Uvicorn on port `8000`; health check `/health`.
+
 3. **Vercel:** Hobby project deployed from `frontend`, Vite preset, output `dist`, with `VITE_API_BASE_URL` pointing to Render. `frontend/vercel.json` rewrites deep client routes to `/index.html`.
+
 4. **Browser:** HTTPS frontend requests the HTTPS backend, includes JWT for authenticated operations, and relies on backend authorization for access control.
+
 5. **OpenAI:** API credentials are available only in the backend environment; keys and Supabase server credentials must **never** be put in frontend `VITE_` variables.
 
 ### Render environment variable names
@@ -310,23 +395,41 @@ Vite normally serves the local app at `http://localhost:5173`.
 Configure these in Render's Environment settings (values omitted where sensitive):
 
 ```dotenv
+
 APP_ENV=production
+
 APP_DEBUG=false
+
 PUBLIC_REGISTRATION_ENABLED=false
+
 PORT=8000
+
 CORS_ALLOWED_ORIGINS=["https://docuflow-ai-assistant.vercel.app"]
+
 DATABASE_URL=YOUR_SUPABASE_POSTGRESQL_PSYCOPG_URL
+
 JWT_SECRET_KEY=YOUR_PRIVATE_RANDOM_JWT_SECRET
+
 JWT_ALGORITHM=HS256
+
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+
 STORAGE_PROVIDER=supabase
+
 SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+
 SUPABASE_SECRET_KEY=YOUR_PRIVATE_SUPABASE_SERVER_KEY
+
 SUPABASE_STORAGE_BUCKET=docuflow-documents
+
 OPENAI_API_KEY=YOUR_PRIVATE_OPENAI_API_KEY
+
 OPENAI_MODEL=YOUR_SUPPORTED_OPENAI_MODEL
+
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+
 OPENAI_EMBEDDING_DIMENSIONS=1536
+
 ```
 
 Use the **Supabase base project URL** for `SUPABASE_URL`, **not** a URL ending in `/rest/v1` or `/storage/v1`. The SDK appends Storage paths itself. The production upload issue caused by an incorrectly combined `/rest/v1/storage/v1/...` path was resolved through environment configuration.
@@ -336,7 +439,9 @@ Use the **Supabase base project URL** for `SUPABASE_URL`, **not** a URL ending i
 ### Vercel environment configuration
 
 ```dotenv
+
 VITE_API_BASE_URL=https://docuflow-ai-backend-ankq.onrender.com
+
 ```
 
 Vite environment variables are embedded in the client bundle at build time and must never contain passwords, tokens, OpenAI keys, or Supabase service/secret keys.
@@ -346,11 +451,17 @@ Vite environment variables are embedded in the client bundle at build time and m
 `frontend/vercel.json`:
 
 ```json
+
 {
+
   "rewrites": [
+
     { "source": "/(.*)", "destination": "/index.html" }
+
   ]
+
 }
+
 ```
 
 The fallback prevents Vercel `404 NOT_FOUND` when directly visiting or refreshing React Router URLs such as `/login` and `/documents`.
@@ -360,27 +471,46 @@ The fallback prevents Vercel `404 NOT_FOUND` when directly visiting or refreshin
 DocuFlow uses **GitHub Actions for CI** and the connected hosting platforms for **CD**. Production releases are initiated by merging an eligible pull request into `main`; the merge is a human decision, while deployment is automatic under the current hosting configuration.
 
 ```text
+
 Feature branch -> pull request
+
          |
+
          v
+
 GitHub Actions: Backend Tests and Quality + Frontend Tests and Build
+
          |
+
          v
+
 GitHub ruleset: both checks required, PR required, branch up to date
+
          |
+
          v
+
 Human merges PR into main
+
          |
+
          +--> Vercel: production React deployment
+
          |
+
          +--> Render: backend Docker deployment after CI checks pass
+
                     (when changes are relevant to backend/)
+
          |
+
          v
+
 Production health checks, logs, and functional smoke tests
+
 ```
 
-**Verified settings (November 5, 2026):**
+**Verified deployment settings (November 8, 2026):**
 
 | Control | Current configuration |
 | --- | --- |
@@ -394,11 +524,14 @@ Production health checks, logs, and functional smoke tests
 | Render root directory | `backend/` |
 | Render Auto-Deploy | `After CI Checks Pass` |
 | Render Dockerfile | `backend/Dockerfile` |
+| Render Pre-Deploy Command | Unavailable/locked on the current Free service; Alembic migrations are run separately |
 
 **Observed verification:**
 
 - **PR #12** changed `docs/cd-verification.md`. Required CI passed; merge commit `e323bbf` was automatically deployed to Vercel production and marked **Ready**. Render did not deploy for this documentation-only change outside its root directory.
 - **PR #13** changed `backend/CD_VERIFICATION.md`. Required CI passed; after merging, Render displayed **New commit via Auto-Deploy** for commit `2f63117`, then **Deploy live**. The backend `/health` and `/health/database` endpoints both reported healthy.
+- **PR #15** added Admin-only user listing with pagination and RBAC; merged into `main`.
+- **PR #16** added Admin Role Management and audit logging. Both required CI jobs passed; the Supabase migration `27ba877ff4bc` was applied manually before the merge; Render reported **Deploy live** for merge commit `02b4075` on November 8, 2026. Both production health endpoints returned healthy results. The deployed role-update route still needs a controlled functional smoke test.
 - Vercel created working preview deployments for the verification PRs; preview and production are separate environments.
 
 This verifies the **successful release path**, not every possible failure scenario. Do not assume that a green CI run guarantees correct business behavior, that all deployment failures have been tested, or that migrations, production secrets, rollback, backups, alerting, and monitoring are fully automated.
@@ -408,10 +541,14 @@ This verifies the **successful release path**, not every possible failure scenar
 **Release and rollback runbook (current manual procedure):**
 
 1. Make changes on a feature branch; run relevant tests and review the diff for credentials or unrelated files.
+
 2. Open a PR, review the required GitHub Actions jobs, and merge only when checks succeed.
+
 3. Observe the Vercel production deployment and the Render backend deployment (if relevant); confirm the deployed commit IDs.
+
 4. Verify `/health`, `/health/database`, relevant user journeys, and logs. A green health endpoint alone does not establish feature correctness.
-5. If a bad release reaches production, use the hosting platform's supported rollback/redeploy mechanism to restore a known-good application version. Validate current platform controls, preserve database compatibility, and rerun smoke tests. Database schema rollback requires a separate reviewed plan and must not be assumed automatic.
+5. For schema changes, confirm the exact Supabase project, current Alembic revision, backup availability, and migration compatibility before deploying dependent code. `27ba877ff4bc` was applied manually ahead of PR #16.
+6. For failed releases, restore a known-good application version using the hosting platform; review database backward compatibility separately. A PostgreSQL enum addition is not automatically reversed by rolling back application code.
 
 Temporary test files (`docs/cd-verification.md` and `backend/CD_VERIFICATION.md`) can be removed later through a separate reviewed PR after the verification has been recorded. The local `backend/scripts/` provisioning directory must not be staged indiscriminately; protect credentials and keep one-time operations controlled.
 
@@ -421,6 +558,7 @@ Temporary test files (`docs/cd-verification.md` and `backend/CD_VERIFICATION.md`
 - Database health: connected to Supabase PostgreSQL.
 - Production public registration: **HTTP 403**, as configured.
 - Provisioned employee account: production sign-in successful.
+- PR #16 Admin Role Management backend deployed on Render (`02b4075`); Supabase schema revision `27ba877ff4bc` verified. Production role-change behavior is not yet validated by a dedicated authorized smoke test.
 - Synthetic invoice PDF: uploaded to private storage; text extracted; classified as invoice; analyzed; indexed; question answered with an included source chunk.
 
 This proves one functioning cloud workflow. It does **not** establish production readiness for arbitrary files, users, high traffic, or all authorization roles.
@@ -432,31 +570,45 @@ This proves one functioning cloud workflow. It does **not** establish production
 From `backend/`:
 
 ```bash
+
 pytest -q
+
 ruff check app tests
+
 ruff format --check app tests
+
 pytest --cov=app --cov-branch --cov-report=term-missing -q
+
 ```
 
 From `frontend/`:
 
 ```bash
+
 npm test
+
 npm run lint
+
 npm run build
+
 npm audit
+
 ```
 
-Automated software tests cover authentication and authorization, document operations, storage behavior, extraction, AI service wrappers, invoice rules, workflow transitions, history, audit records, database persistence, and selected failure/concurrency cases. Production smoke testing complements—rather than replaces—these tests.
+Automated software tests cover authentication and authorization, document operations, storage behavior, extraction, AI service wrappers, invoice rules, workflow transitions, history, audit records, database persistence, and selected failure/concurrency cases. Phase 15.2 includes 11 passing Admin Role Management API tests (authorization, validation, audit/no-op behavior, demotion, rollback) and a separate PostgreSQL concurrent-demotion test passed across four recorded runs. Production smoke testing complements—rather than replaces—these tests.
 
 ### Model-quality evaluations
 
 From `backend/`:
 
 ```bash
+
 python -m evals.run_classification_eval
+
 python -m evals.run_invoice_extraction_eval
+
 python -m evals.run_rag_eval
+
 ```
 
 Historical controlled evaluation baselines:
@@ -476,42 +628,52 @@ The RAG retrieval baseline improved from 4/5 to 5/5 on this fixed set after intr
 - **Cold starts:** Render Free may sleep after inactivity. The frontend Axios client currently uses a **10-second timeout**, which can be shorter than a cold-start delay. Revisit request-specific timeouts and user-facing retry handling if needed.
 - **Synchronous AI operations:** Time-consuming processing and model operations may benefit from queues/workers, timeouts, retry policy, and observability later; none is implied to exist today.
 - **Document compatibility:** Text-based PDFs work; scanned PDFs need OCR. Structured extraction and specific rules currently focus on invoices.
-- **Role coverage:** Employee, Manager, and Admin roles exist; manager and admin currently overlap in their document/workflow privileges. Dedicated administrative user-management features are not implemented. Production employee document and RAG flow was demonstrated; cross-role approval and information-request journeys still need targeted cloud verification.
+- **Role coverage:** Employee, Manager, and Admin roles exist; manager and admin still overlap in some document/workflow privileges. Admin-only user listing and role updates are implemented, but account activation/deactivation and a dedicated Admin UI are not yet implemented. Production employee document and RAG flow was demonstrated; cross-role approval, information-request, and role-change journeys still need targeted cloud verification.
 - **Storage and recovery:** Supabase Storage is private; review retention, orphan-object cleanup, storage quota, backups, restoration, and failed-request reconciliation.
 - **Privacy and logs:** Avoid genuine confidential customer documents in the public demo; use synthetic data. Avoid printing secret-bearing Pydantic settings or provider exception bodies. Rotate a secret immediately if exposed in logs or screenshots.
 - **Security and release process:** Keep server secrets in Render, audit privileged Supabase database permissions, enforce least privilege, maintain PR/branch protections, and practice rollback and recovery. A basic release/rollback runbook is documented; a failed-release exercise remains pending.
 - **CI/CD scope:** The successful PR-to-production release path is verified. Failure-injection exercises, complete deployment gating across all service types, monitoring/alerting, backup-restore tests, and database migration rollback remain future hardening work.
 
-## Phase 15 — Planned: Admin User Management & RBAC Refinement
+## Phase 15 — Admin User Management & RBAC Refinement
 
-**Status: planned, not implemented.** The current codebase supports `employee`, `manager`, and `admin` roles. Manager and Admin presently have similar access to reviews, workflow decisions, dashboards, and audit logs. Production accounts were created through a controlled local provisioning process and privileged database role updates; the application does **not** have an Admin User Management UI or API yet.
+**Status: in progress.** Admin User Listing (PR #15) and Admin Role Management (PR #16) are implemented and merged into `main`. The backend for both is deployed; the dedicated Admin UI and account-status controls are not yet built.
 
-**Goal:** Establish clearer separation between business review duties and privileged account administration, without rebuilding the modular monolith or weakening existing authorization.
+**Goal:** Separate privileged account administration from ordinary workflow review without changing the modular-monolith architecture or implicitly revoking Manager/Admin business-workflow permissions.
 
-### Proposed MVP scope (to validate after inspecting the repository)
+### Phase 15.1 — Admin User Listing (completed)
 
-1. **Admin-only user directory:** List user IDs, display names, email addresses, assigned roles, and active/inactive status. Do not expose password hashes or sensitive authentication data.
-2. **Role changes:** Add a tightly authorized, validated workflow for promoting and demoting users; reject unsupported roles and unauthorized requests.
-3. **Account activation/deactivation:** Allow designated administrators to control access, with documented behavior for existing sessions and protected user actions.
-4. **Auditability:** Record actor, target, old/new role or status, and timestamp for privileged changes without leaking secrets.
-5. **Safety rules:** Prevent accidental removal/deactivation of the last active admin; consider self-demotion restrictions, concurrent updates, transactional consistency, and least-privilege permissions.
-6. **Dedicated frontend view:** Show user-management controls only to admins, but enforce every permission in FastAPI. Frontend visibility is never the security boundary.
-7. **Tests and release:** Cover employee/manager denial, admin success, invalid state changes, concurrency and audit records, and relevant cross-role regressions. Use the protected GitHub PR and CI/CD release process.
+- `GET /admin/users`, protected by `require_roles(UserRole.ADMIN)`.
+- Bounded pagination with `limit` and `offset`, total count, and a response schema that omits password hashes.
+- Employee/Manager requests are denied; existing user authentication and repository layers are reused.
+- Implemented and merged through PR #15.
 
-### Architectural boundaries
+### Phase 15.2 — Admin Role Management (implemented and deployed)
 
-Extend existing authentication, `User` model, user repository, FastAPI authorization dependencies, audit services, and React protected routing **only after inspecting their actual current implementations**. Define the API schemas and business rules before choosing endpoints or new database fields. Do not assume a new table or migration is needed; the existing user record already contains role and active status.
+- `PATCH /admin/users/{user_id}/role` accepts a validated `UserRoleUpdateRequest` with `employee`, `manager`, or `admin`.
+- Only an authenticated, active Admin can change roles; self-role changes are disallowed. Missing users, invalid roles, and prohibited role changes receive appropriate HTTP errors.
+- A guarded transaction updates the target role and writes the `USER_ROLE_CHANGED` audit event with actor, target, old role, and new role. No-op changes do not write a role-change event.
+- PostgreSQL transaction-level advisory locking and row locks coordinate cooperating role-change transactions; a successful competing-demotion test left one active Admin and one audit event. Other role/activation paths must follow the same locking policy to preserve the invariant.
+- Eleven API and rollback test cases passed; the independent-session concurrency case passed on four recorded runs. This is targeted evidence, not proof of all possible interleavings.
+- Alembic revision `27ba877ff4bc` adds the `user_role_changed` audit enum. Applied manually to the production Supabase database before merging PR #16.
+- PR #16 merged into `main` and deployed on Render as `02b4075`. `/health` and `/health/database` passed; a production role-change smoke test remains pending.
 
-The choice of whether Admin should retain manager-style approval privileges is a **product-policy decision** for Phase 15, not something to change implicitly as part of adding a user list. Preserve present behavior until requirements and migration impacts are agreed upon.
+### Phase 15.3 — Next: Account Activation and Deactivation
 
-### Phase 15 acceptance criteria (planned)
+Planned work (not implemented):
 
-- Admin can view and manage eligible users through authenticated, validated backend endpoints and a dedicated interface.
-- Employee/Manager cannot call Admin APIs successfully, including through direct HTTP requests.
-- Privileged account changes are audited and transactionally consistent.
-- Last-admin and concurrent-update protections are covered by tests.
-- Existing document, workflow, and RAG permissions do not regress.
-- New behavior is reviewed through PR, CI, deployment, and cloud smoke tests.
+1. Admin-only account activate/deactivate operations with explicit request schemas and response contracts.
+2. Protect the final active Admin; coordinate status changes with the same membership-locking protocol used for role changes.
+3. Ensure deactivated users cannot use existing access tokens on protected endpoints; test login and token behavior.
+4. Record account-status changes in the audit trail within the same transaction.
+5. Cover authorization, invalid states, no-op behavior, rollback, last-Admin safety, concurrency, and regressions.
+6. Add a dedicated Admin management interface after confirming the backend contracts and access policies.
+
+### Remaining Phase 15 acceptance criteria
+
+- Backend Admin user listing and role management implemented and CI-tested.
+- Account activation/deactivation, privileged-account UI, and full cross-role regression/security checks remain future tasks.
+- Production role-change authorization and mutation should be checked using a designated noncritical synthetic account rather than a real user's permissions.
+- Deployment, migration, and failure-recovery procedures remain controlled and partially manual.
 
 ## Development History
 
@@ -531,10 +693,12 @@ The choice of whether Admin should retain manager-style approval privileges is a
 | 14.4 | Cloud storage adapter and provider persistence | Merged into `main` |
 | 14.5 | Supabase/Render/Vercel deployment and cloud smoke testing | Deployed; final operational hardening pending |
 | 14.6 | Protected PRs, GitHub Actions CI, automatic Vercel/Render production deployments | **Core CI/CD release path verified** |
-| 15 | Admin User Management & RBAC Refinement | **Planned — not yet implemented** |
+| 15.1 | Admin-only user listing, pagination, and RBAC | **Merged in PR #15; deployed** |
+| 15.2 | Role-management API, audit transactions, PostgreSQL locking, tests | **Merged in PR #16; deployed** |
+| 15.3 | Admin account activation/deactivation and last-active-Admin protection | **Planned** |
 
 The project is intentionally built phase by phase: **requirements → inspect code → design → implement → test → review → pull request → deploy → monitor → iterate**.
 
 ---
 
-**Current scope:** Working, cloud-hosted portfolio MVP with verified CI/CD release path and documented engineering boundaries. The production document/Q&A path has been demonstrated. Phase 15 Admin User Management is planned, while full enterprise production-hardening and all-role verification remain open engineering tasks.
+**Current scope:** Working, cloud-hosted portfolio MVP with verified CI/CD release path and documented engineering boundaries. The production document/Q&A path has been demonstrated. Phase 15.1 and 15.2 backend administration features are merged and deployed; account activation/deactivation and the Admin UI are still planned. Full enterprise hardening and cross-role production validation remain open engineering tasks.
