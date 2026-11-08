@@ -1,3 +1,4 @@
+import LoadingIndicator from "../components/ui/LoadingIndicator";
 
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
@@ -268,7 +269,7 @@ function WorkflowsPage() {
       )}
 
       {isLoading ? (
-        <p className="workspace-loading" role="status">Loading workflows...</p>
+        <LoadingIndicator label="Loading workflows..." />
       ) : errorMessage && workflows.length === 0 ? null : workflows.length === 0 ? (
         <div className="empty-workflows">
           <h3>No workflows yet</h3>

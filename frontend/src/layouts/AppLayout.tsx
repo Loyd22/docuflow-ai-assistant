@@ -1,3 +1,4 @@
+
 import {
   NavLink,
   Outlet,
@@ -11,23 +12,39 @@ import "./AppLayout.css";
 function AppLayout() {
   const { user, logout } = useAuth();
 
+  // Managers and admins can access management pages.
   const canViewManagementPages =
     user?.role === "manager" || user?.role === "admin";
 
+  // Only admins can manage user accounts.
+  const canManageUsers = user?.role === "admin";
+
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#main-content">Skip to content</a>
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
+
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <span className="brand-mark"><ShellIcon name="documents" /></span>
+          <span className="brand-mark">
+            <ShellIcon name="documents" />
+          </span>
+
           <div>
             <h1>DocuFlow AI</h1>
             <p>Document Workflow System</p>
           </div>
         </div>
 
-        <p className="sidebar-section-label">Workspace</p>
-        <nav className="sidebar-nav" aria-label="Main navigation">
+        <p className="sidebar-section-label">
+          Workspace
+        </p>
+
+        <nav
+          className="sidebar-nav"
+          aria-label="Main navigation"
+        >
           {canViewManagementPages && (
             <NavLink
               to="/dashboard"
@@ -35,7 +52,8 @@ function AppLayout() {
                 isActive ? "nav-link active" : "nav-link"
               }
             >
-              <ShellIcon name="dashboard" />Dashboard
+              <ShellIcon name="dashboard" />
+              Dashboard
             </NavLink>
           )}
 
@@ -45,7 +63,8 @@ function AppLayout() {
               isActive ? "nav-link active" : "nav-link"
             }
           >
-            <ShellIcon name="documents" />Documents
+            <ShellIcon name="documents" />
+            Documents
           </NavLink>
 
           <NavLink
@@ -54,7 +73,8 @@ function AppLayout() {
               isActive ? "nav-link active" : "nav-link"
             }
           >
-            <ShellIcon name="workflows" />Workflows
+            <ShellIcon name="workflows" />
+            Workflows
           </NavLink>
 
           {canViewManagementPages && (
@@ -64,7 +84,21 @@ function AppLayout() {
                 isActive ? "nav-link active" : "nav-link"
               }
             >
-              <ShellIcon name="audit" />Audit Logs
+              <ShellIcon name="audit" />
+              Audit Logs
+            </NavLink>
+          )}
+
+          {/* Only admins see User Management. */}
+          {canManageUsers && (
+            <NavLink
+              to="/admin/users"
+              className={({ isActive }) =>
+                isActive ? "nav-link active" : "nav-link"
+              }
+            >
+              <ShellIcon name="documents" />
+              User Management
             </NavLink>
           )}
         </nav>
@@ -72,14 +106,23 @@ function AppLayout() {
 
       <div className="app-main">
         <header className="app-header">
-          <div className="header-workspace">Document workspace</div>
+          <div className="header-workspace">
+            Document workspace
+          </div>
+
           <div className="header-account">
-            <span className="user-avatar" aria-hidden="true">
+            <span
+              className="user-avatar"
+              aria-hidden="true"
+            >
               {user?.name.trim().charAt(0).toLocaleUpperCase()}
             </span>
+
             <div className="user-details">
               <strong>{user?.name}</strong>
-              <span className="user-role">{user?.role}</span>
+              <span className="user-role">
+                {user?.role}
+              </span>
             </div>
 
             <button
@@ -93,8 +136,17 @@ function AppLayout() {
           </div>
         </header>
 
-        <main className="page-content" id="main-content" tabIndex={-1}>
-          <Outlet />
+        <main
+          className="page-content"
+          id="main-content"
+          tabIndex={-1}
+        >
+          {/* Animate page elements without keying or remounting the outlet. */}
+          <div
+            className="page-transition"
+          >
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

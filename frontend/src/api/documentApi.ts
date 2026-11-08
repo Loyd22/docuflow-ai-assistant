@@ -1,3 +1,4 @@
+import type { AxiosProgressEvent } from "axios";
 import { apiClient } from "./client";
 
 import type {
@@ -28,6 +29,7 @@ export async function getDocumentDetails(
 
 export async function uploadDocument(
   file: File,
+  onUploadProgress?: (event: AxiosProgressEvent) => void,
 ): Promise<Document> {
   const formData = new FormData();
 
@@ -37,6 +39,7 @@ export async function uploadDocument(
   const response = await apiClient.post<Document>(
     "/documents",
     formData,
+    { onUploadProgress },
   );
 
   return response.data;

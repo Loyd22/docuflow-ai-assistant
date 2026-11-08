@@ -1,3 +1,4 @@
+import LoadingIndicator, { Spinner } from "../ui/LoadingIndicator";
 
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
@@ -95,6 +96,7 @@ function WorkflowInformationResponsePanel({
     event: FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
+    if (isSubmitting) return;
     setSubmitError(null);
 
     if (!informationRequest) {
@@ -165,8 +167,10 @@ function WorkflowInformationResponsePanel({
         </button>
       </div>
 
+      {isSubmitting && <p role="status">Submitting information response...</p>}
+
       {isLoading && (
-        <p className="workflow-document-loading" role="status">Loading information request...</p>
+        <LoadingIndicator compact label="Loading information request..." />
       )}
 
       {errorMessage && (
@@ -233,11 +237,13 @@ function WorkflowInformationResponsePanel({
 
             <button
               type="submit"
+            aria-busy={isSubmitting}
               className="workflow-submit-button"
               disabled={
                 isSubmitting || !responseComment.trim()
               }
             >
+              {isSubmitting && <Spinner />}
               {isSubmitting
                 ? "Submitting..."
                 : "Submit Response"}

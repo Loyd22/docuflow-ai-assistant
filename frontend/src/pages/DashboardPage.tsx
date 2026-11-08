@@ -1,3 +1,4 @@
+import LoadingIndicator from "../components/ui/LoadingIndicator";
 
 import { useEffect, useState } from "react";
 import axios from "axios";
@@ -91,7 +92,7 @@ function DashboardPage() {
     return (
       <section className="dashboard-page">
         <h2>Dashboard</h2>
-        <p className="dashboard-state" role="status">Loading dashboard...</p>
+        <LoadingIndicator label="Loading dashboard..." />
       </section>
     );
   }

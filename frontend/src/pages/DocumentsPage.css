@@ -135,3 +135,12 @@
     width: 100%;
   }
 }
+.selected-file { overflow-wrap: anywhere; }
+.upload-form input[type="file"] { min-width: 0; }
+.upload-feedback progress { width: 100%; accent-color: var(--color-primary); }
+.upload-panel .error-message { color: #991b1b; }
+.upload-panel .success-message { color: #166534; }
+.document-operation { display: block; font-size: 12px; font-weight: 400; color: var(--color-muted); }
+.document-operation:empty,
+.question-request-status:empty { display: none; }
+.question-request-status { margin: 0; color: var(--color-muted); }

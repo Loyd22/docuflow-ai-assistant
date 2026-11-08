@@ -1,3 +1,4 @@
+import LoadingIndicator, { Spinner } from "../ui/LoadingIndicator";
 
 import { type FormEvent, useEffect, useState } from "react";
 import axios from "axios";
@@ -264,9 +265,7 @@ function WorkflowDecisionPanel({
       )}
 
       {isLoadingDocument && (
-        <div className="workflow-document-loading" role="status">
-          Loading document details...
-        </div>
+        <LoadingIndicator compact label="Loading document details..." />
       )}
 
       {documentErrorMessage && (
@@ -403,6 +402,7 @@ function WorkflowDecisionPanel({
       )}
 
       {/* Manager approval decision form. */}
+      {isSubmitting && <p role="status">Submitting workflow decision...</p>}
       <form
         className="workflow-decision-form"
         onSubmit={handleSubmit}
@@ -480,9 +480,11 @@ function WorkflowDecisionPanel({
         <div className="workflow-decision-form-actions">
           <button
             type="submit"
+            aria-busy={isSubmitting}
             className="workflow-submit-button"
             disabled={cannotSubmit}
           >
+            {isSubmitting && <Spinner />}
             {isSubmitting
               ? "Submitting..."
               : "Submit Decision"}

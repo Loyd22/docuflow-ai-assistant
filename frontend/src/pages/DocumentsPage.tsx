@@ -1,8 +1,10 @@
+import LoadingIndicator, { Spinner } from "../components/ui/LoadingIndicator";
 
 import {
   type ChangeEvent,
   type FormEvent,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import axios from "axios";
@@ -78,6 +80,8 @@ function DocumentsPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [processingDocumentId, setProcessingDocumentId] =
     useState<number | null>(null);
@@ -152,24 +156,32 @@ function DocumentsPage() {
   ) {
     event.preventDefault();
 
+    if (isUploading) return;
+
     if (!selectedFile) {
       setErrorMessage("Please select a file first.");
       return;
     }
 
     setIsUploading(true);
+    setUploadProgress(null);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
       const uploadedDocument =
-        await uploadDocument(selectedFile);
+        await uploadDocument(selectedFile, ({ loaded, total }) => {
+          setUploadProgress(total && total > 0
+            ? Math.min(100, Math.floor((loaded / total) * 100))
+            : null);
+        });
 
       setSuccessMessage(
         `${uploadedDocument.original_file_name} uploaded successfully.`,
       );
 
       setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       await loadDocuments();
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -191,6 +203,7 @@ function DocumentsPage() {
   async function handleProcessDocument(
     documentId: number,
   ) {
+    if (processingDocumentId !== null) return;
     setProcessingDocumentId(documentId);
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -230,6 +243,7 @@ function DocumentsPage() {
   async function handleAnalyzeDocument(
     documentId: number,
   ) {
+    if (analyzingDocumentId !== null) return;
     setAnalyzingDocumentId(documentId);
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -269,6 +283,7 @@ function DocumentsPage() {
   async function handleIndexDocument(
     documentId: number,
   ) {
+    if (indexingDocumentId !== null) return;
     setIndexingDocumentId(documentId);
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -399,7 +414,7 @@ function DocumentsPage() {
           onSubmit={handleUpload}
         >
           <input
-            key={selectedFile?.name ?? "empty"}
+            ref={fileInputRef}
             aria-label="Choose document to upload"
             type="file"
             accept=".pdf,.docx,.txt"
@@ -410,10 +425,27 @@ function DocumentsPage() {
           <button
             type="submit"
             disabled={!selectedFile || isUploading}
+            aria-busy={isUploading}
           >
+            {isUploading && <Spinner />}
             {isUploading ? "Uploading..." : "Upload"}
           </button>
         </form>
+
+        {selectedFile && <p className="selected-file">Selected file: <strong>{selectedFile.name}</strong></p>}
+
+        {isUploading && (
+          <div className="upload-feedback">
+            <p role="status">
+              {uploadProgress === 100
+                ? "File transferred. Waiting for server confirmation..."
+                : uploadProgress === null ? "Uploading document..." : `Uploading document: ${uploadProgress}%`}
+            </p>
+            {uploadProgress !== null && (
+              <progress aria-label="File upload progress" max={100} value={uploadProgress} />
+            )}
+          </div>
+        )}
 
         {errorMessage && (
           <p className="message error-message" role="alert">
@@ -439,7 +471,7 @@ function DocumentsPage() {
         </div>
 
         {isLoading ? (
-          <p className="workspace-loading" role="status">Loading documents...</p>
+          <LoadingIndicator label="Loading documents..." />
         ) : errorMessage && documents.length === 0 ? null : documents.length === 0 ? (
           <div className="empty-documents">
             <h3>No documents yet</h3>
@@ -468,6 +500,7 @@ function DocumentsPage() {
 
             {questionDocument && (
               <DocumentQuestionPanel
+                key={questionDocument.id}
                 document={questionDocument}
                 onClose={() => setQuestionDocumentId(null)}
               />

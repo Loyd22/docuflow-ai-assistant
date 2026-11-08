@@ -1,3 +1,4 @@
+
 import {
   Route,
   Routes,
@@ -6,7 +7,10 @@ import {
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { RoleHomeRedirect } from "./auth/RoleHomeRedirect";
 import { RoleProtectedRoute } from "./auth/RoleProtectedRoute";
+
 import AppLayout from "./layouts/AppLayout";
+
+import AdminUsersPage from "./pages/AdminUsersPage";
 import AuditLogsPage from "./pages/AuditLogsPage";
 import DashboardPage from "./pages/DashboardPage";
 import DocumentsPage from "./pages/DocumentsPage";
@@ -28,6 +32,7 @@ function App() {
         element={<ForbiddenPage />}
       />
 
+      {/* All routes inside this layout require authentication. */}
       <Route
         element={
           <ProtectedRoute>
@@ -68,6 +73,18 @@ function App() {
               allowedRoles={["manager", "admin"]}
             >
               <AuditLogsPage />
+            </RoleProtectedRoute>
+          }
+        />
+
+        {/* Only administrators can access user management. */}
+        <Route
+          path="/admin/users"
+          element={
+            <RoleProtectedRoute
+              allowedRoles={["admin"]}
+            >
+              <AdminUsersPage />
             </RoleProtectedRoute>
           }
         />

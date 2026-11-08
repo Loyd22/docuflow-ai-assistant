@@ -1,3 +1,4 @@
+import { Spinner } from "../ui/LoadingIndicator";
 
 import { useState } from "react";
 import "./DocumentTable.css";
@@ -123,7 +124,8 @@ function OriginalDocumentActions({
             onClick={() => void handleView()}
             disabled={activeAction !== null}
           >
-            {activeAction === "view"
+            {activeAction === "view" && <Spinner />}
+          {activeAction === "view"
               ? "Opening..."
               : "View Original"}
           </button>
@@ -135,6 +137,7 @@ function OriginalDocumentActions({
           onClick={() => void handleDownload()}
           disabled={activeAction !== null}
         >
+          {activeAction === "download" && <Spinner />}
           {activeAction === "download"
             ? "Downloading..."
             : "Download Original"}

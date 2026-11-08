@@ -1,3 +1,4 @@
+import { Spinner } from "../ui/LoadingIndicator";
 
 import type { Document } from "../../types/document";
 
@@ -112,7 +113,12 @@ function DocumentTable({
 
             return (
               <tr key={document.id}>
-                <td className="document-file-name">{document.original_file_name}</td>
+                <td className="document-file-name">
+                  {document.original_file_name}
+                  <span className="document-operation" role="status">
+                    {isProcessing ? "Extracting document text..." : isAnalyzing ? "Running AI analysis..." : isIndexing ? "Indexing document for Q&A..." : ""}
+                  </span>
+                </td>
 
                 <td>
                   {formatLabel(document.document_type)}
@@ -149,8 +155,10 @@ function DocumentTable({
                         onClick={() =>
                           onProcess(document.id)
                         }
-                        disabled={isProcessing}
+                        disabled={processingDocumentId !== null}
+                        aria-busy={isProcessing}
                       >
+                        {isProcessing && <Spinner />}
                         {isProcessing
                           ? "Processing..."
                           : "Process"}
@@ -164,8 +172,10 @@ function DocumentTable({
                         onClick={() =>
                           onAnalyze(document.id)
                         }
-                        disabled={isAnalyzing}
+                        disabled={analyzingDocumentId !== null}
+                        aria-busy={isAnalyzing}
                       >
+                        {isAnalyzing && <Spinner />}
                         {isAnalyzing
                           ? "Analyzing..."
                           : "Analyze"}
@@ -179,8 +189,10 @@ function DocumentTable({
                         onClick={() =>
                           onIndex(document.id)
                         }
-                        disabled={isIndexing}
+                        disabled={indexingDocumentId !== null}
+                        aria-busy={isIndexing}
                       >
+                        {isIndexing && <Spinner />}
                         {isIndexing
                           ? "Indexing..."
                           : "Index"}
@@ -206,8 +218,10 @@ function DocumentTable({
                         onClick={() =>
                           onViewOriginal(document.id)
                         }
-                        disabled={isViewing}
+                        disabled={viewingDocumentId !== null}
+                        aria-busy={isViewing}
                       >
+                        {isViewing && <Spinner />}
                         {isViewing
                           ? "Opening..."
                           : "View Original"}
@@ -220,8 +234,10 @@ function DocumentTable({
                       onClick={() =>
                         onDownloadOriginal(document.id)
                       }
-                      disabled={isDownloading}
+                      disabled={downloadingDocumentId !== null}
+                      aria-busy={isDownloading}
                     >
+                      {isDownloading && <Spinner />}
                       {isDownloading
                         ? "Downloading..."
                         : "Download Original"}

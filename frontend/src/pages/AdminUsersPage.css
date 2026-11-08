@@ -1,0 +1,252 @@
+
+.admin-users-page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--space-5);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.admin-users-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.admin-users-page button {
+  min-height: 38px;
+  padding: 9px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-users-page button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-users-page :is(button, select):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.admin-secondary-button {
+  color: var(--color-primary-deep);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.admin-secondary-button:hover:not(:disabled) {
+  background: var(--color-primary-soft);
+}
+
+.admin-primary-button {
+  color: white;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.admin-primary-button:hover:not(:disabled) {
+  background: var(--color-primary-deep);
+}
+
+.admin-users-card,
+.admin-role-editor,
+.admin-empty-state {
+  min-width: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+
+.admin-users-table-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.admin-users-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.admin-users-table th,
+.admin-users-table td {
+  padding: 16px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.admin-users-table th {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--color-background);
+}
+
+.admin-users-table td {
+  color: var(--color-text);
+}
+
+.admin-users-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-role-badge,
+.admin-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.admin-role-badge {
+  color: var(--color-primary-deep);
+  background: var(--color-primary-soft);
+  text-transform: capitalize;
+}
+
+.admin-status.active {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.admin-status.inactive {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.admin-self-label {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.admin-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.admin-pagination p {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.admin-pagination-actions,
+.admin-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.admin-role-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+.admin-role-editor h3,
+.admin-role-editor p {
+  margin: 0;
+}
+
+.admin-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.admin-form-field label {
+  font-weight: 600;
+}
+
+.admin-form-field select {
+  width: 100%;
+  max-width: 340px;
+  padding: 12px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.admin-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-primary-soft);
+  border-radius: var(--radius-md);
+}
+
+.admin-editor-actions {
+  justify-content: flex-end;
+}
+
+.admin-message {
+  margin: 0;
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+}
+
+.admin-error {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.admin-success {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.admin-empty-state {
+  padding: var(--space-6);
+}
+
+@media (max-width: 768px) {
+  .admin-users-table {
+    min-width: 680px;
+  }
+
+  .admin-role-editor {
+    padding: var(--space-4);
+  }
+
+  .admin-editor-actions button {
+    flex: 1;
+  }
+}
+
+
+
+/* Keep user-management actions together. */
+.admin-user-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Distinguish potentially destructive actions. */
+.admin-danger-button {
+  color: #991b1b;
+  background: #fff;
+  border: 1px solid #fca5a5;
+}
+
+.admin-danger-button:hover:not(:disabled) {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
