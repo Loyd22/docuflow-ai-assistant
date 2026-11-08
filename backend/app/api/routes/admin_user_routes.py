@@ -11,12 +11,14 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.admin_user_schema import (
     UserListResponse,
     UserRoleUpdateRequest,
+    UserStatusUpdateRequest,
 )
 from app.schemas.auth_schema import UserResponse
 from app.services.admin_user_service import (
     AdminUserService,
     LastActiveAdminError,
     RoleChangeForbiddenError,
+    StatusChangeForbiddenError,
     UserNotFoundError,
 )
 
@@ -88,6 +90,53 @@ def change_user_role(
         ) from exc
 
     except RoleChangeForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+
+    except LastActiveAdminError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+
+@router.patch(
+    "/{user_id}/status",
+    response_model=UserResponse,
+)
+def change_user_status(
+    user_id: Annotated[int, Path(ge=1)],
+    request: UserStatusUpdateRequest,
+    db_session: Annotated[
+        Session,
+        Depends(get_db_session),
+    ],
+    current_admin: Annotated[
+        User,
+        Depends(require_roles(UserRole.ADMIN)),
+    ],
+) -> User:
+    """Activate or deactivate a user account. Admin only."""
+
+    user_repository = UserRepository(db_session)
+    admin_user_service = AdminUserService(user_repository)
+
+    try:
+        return admin_user_service.change_status(
+            actor_id=current_admin.id,
+            target_user_id=user_id,
+            is_active=request.is_active,
+        )
+
+    except UserNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except StatusChangeForbiddenError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(exc),
